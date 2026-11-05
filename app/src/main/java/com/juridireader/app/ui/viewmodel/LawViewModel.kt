@@ -1,6 +1,7 @@
 package com.juridireader.app.ui.viewmodel
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.juridireader.app.JuridiReaderApp
@@ -13,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
@@ -34,9 +36,17 @@ class LawViewModel(application: Application) : AndroidViewModel(application) {
 
     // Leis e Categorias
     val allLaws: StateFlow<List<LawMetadataEntity>> = repository.getAllLaws()
+        .catch { e ->
+            Log.e("LawViewModel", "Erro ao carregar lista de leis", e)
+            emit(emptyList())
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val categories: StateFlow<List<String>> = repository.getAllCategories()
+        .catch { e ->
+            Log.e("LawViewModel", "Erro ao carregar categorias", e)
+            emit(emptyList())
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Lei atualmente aberta no leitor
@@ -46,6 +56,10 @@ class LawViewModel(application: Application) : AndroidViewModel(application) {
     val currentLawArticles: StateFlow<List<ArticleWithUserData>> = _selectedLawCode
         .flatMapLatest { code ->
             if (code != null) repository.getArticlesForLaw(code) else flowOf(emptyList())
+        }
+        .catch { e ->
+            Log.e("LawViewModel", "Erro ao carregar artigos da lei", e)
+            emit(emptyList())
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -67,13 +81,25 @@ class LawViewModel(application: Application) : AndroidViewModel(application) {
                 repository.searchArticles(query, cat)
             }
         }
+        .catch { e ->
+            Log.e("LawViewModel", "Erro na busca FTS5", e)
+            emit(emptyList())
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Favoritos e Personalizados
     val favoriteArticles: StateFlow<List<ArticleWithUserData>> = repository.getFavorites()
+        .catch { e ->
+            Log.e("LawViewModel", "Erro ao carregar favoritos", e)
+            emit(emptyList())
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val customizedArticles: StateFlow<List<ArticleWithUserData>> = repository.getCustomizedArticles()
+        .catch { e ->
+            Log.e("LawViewModel", "Erro ao carregar customizações", e)
+            emit(emptyList())
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun selectLaw(code: String) {
@@ -98,19 +124,31 @@ class LawViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleFavorite(articleId: String, currentStatus: Boolean) {
         viewModelScope.launch {
-            repository.toggleFavorite(articleId, currentStatus)
+            try {
+                repository.toggleFavorite(articleId, currentStatus)
+            } catch (e: Exception) {
+                Log.e("LawViewModel", "Erro ao alternar favorito", e)
+            }
         }
     }
 
     fun saveNote(articleId: String, noteText: String) {
         viewModelScope.launch {
-            repository.saveNote(articleId, noteText)
+            try {
+                repository.saveNote(articleId, noteText)
+            } catch (e: Exception) {
+                Log.e("LawViewModel", "Erro ao salvar anotação", e)
+            }
         }
     }
 
     fun setHighlight(articleId: String, color: String?) {
         viewModelScope.launch {
-            repository.setHighlight(articleId, color)
+            try {
+                repository.setHighlight(articleId, color)
+            } catch (e: Exception) {
+                Log.e("LawViewModel", "Erro ao definir grifo", e)
+            }
         }
     }
 }

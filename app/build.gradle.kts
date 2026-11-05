@@ -49,6 +49,10 @@ android {
         compose = true
     }
 
+    androidResources {
+        noCompress += "db"
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"

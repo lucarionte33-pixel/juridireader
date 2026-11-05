@@ -283,6 +283,19 @@ def generate_database(output_path: str):
     )
     """)
     
+    # 6. Room Master Table (garante compatibilidade e validação perfeita no Room)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS room_master_table (
+        id INTEGER PRIMARY KEY,
+        identity_hash TEXT
+    )
+    """)
+    cur.execute("""
+    INSERT OR REPLACE INTO room_master_table (id, identity_hash)
+    VALUES (42, '0e20eb9cc935462f4786918d588f0228')
+    """)
+    cur.execute("PRAGMA user_version = 1;")
+    
     conn.commit()
     conn.close()
     
