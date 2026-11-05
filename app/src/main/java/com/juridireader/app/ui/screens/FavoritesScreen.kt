@@ -24,7 +24,7 @@ import com.juridireader.app.ui.viewmodel.LawViewModel
 @Composable
 fun FavoritesScreen(
     viewModel: LawViewModel,
-    onNavigateToLaw: (String) -> Unit
+    onNavigateToArticle: (String, String) -> Unit
 ) {
     val favorites by viewModel.favoriteArticles.collectAsState()
 
@@ -61,7 +61,7 @@ fun FavoritesScreen(
                 items(favorites, key = { it.id }) { article ->
                     FavoriteItemCard(
                         article = article,
-                        onClick = { onNavigateToLaw(article.lawCode) },
+                        onClick = { onNavigateToArticle(article.lawCode, article.id) },
                         onRemoveFavorite = { viewModel.toggleFavorite(article.id, true) }
                     )
                 }

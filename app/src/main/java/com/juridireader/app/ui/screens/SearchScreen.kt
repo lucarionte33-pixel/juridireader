@@ -23,7 +23,7 @@ import com.juridireader.app.ui.viewmodel.LawViewModel
 @Composable
 fun SearchScreen(
     viewModel: LawViewModel,
-    onNavigateToLaw: (String) -> Unit
+    onNavigateToArticle: (String, String) -> Unit
 ) {
     val query by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
@@ -129,7 +129,7 @@ fun SearchScreen(
                     items(searchResults, key = { it.id }) { article ->
                         SearchResultCard(
                             article = article,
-                            onClick = { onNavigateToLaw(article.lawCode) }
+                            onClick = { onNavigateToArticle(article.lawCode, article.id) }
                         )
                     }
                 }

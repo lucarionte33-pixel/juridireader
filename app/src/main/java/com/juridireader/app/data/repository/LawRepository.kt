@@ -1,5 +1,6 @@
 package com.juridireader.app.data.repository
 
+import android.util.Log
 import com.juridireader.app.data.local.AppDatabase
 import com.juridireader.app.data.local.entity.ArticleWithUserData
 import com.juridireader.app.data.local.entity.LawMetadataEntity
@@ -7,6 +8,9 @@ import com.juridireader.app.data.local.entity.UserFavoriteEntity
 import com.juridireader.app.data.local.entity.UserHighlightEntity
 import com.juridireader.app.data.local.entity.UserNoteEntity
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flowOf
 
 class LawRepository(private val database: AppDatabase) {
 
@@ -21,15 +25,39 @@ class LawRepository(private val database: AppDatabase) {
         lawDao.getArticlesWithUserDataForLaw(lawCode)
 
     fun searchArticles(query: String, category: String? = null): Flow<List<ArticleWithUserData>> {
-        val sanitizedQuery = query.trim().replace("\"", "").replace("'", "")
-        if (sanitizedQuery.isEmpty()) {
-            return lawDao.getFavoriteArticles()
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) {
+            return flowOf(emptyList())
         }
-        val ftsExpression = "$sanitizedQuery*"
-        return if (category.isNullOrBlank() || category == "Todas") {
-            lawDao.searchArticlesFts(ftsExpression)
+
+        val tokenRegex = Regex("[0-9A-Za-zÀ-ÿ]+")
+        val tokens = tokenRegex.findAll(trimmed).map { it.value }.toList()
+
+        if (tokens.isEmpty()) {
+            return if (category.isNullOrBlank() || category == "Todas") {
+                lawDao.searchArticlesLike(trimmed)
+            } else {
+                lawDao.searchArticlesLikeByCategory(trimmed, category)
+            }
+        }
+
+        val ftsExpression = tokens.joinToString(" AND ") { "\"$it\"*" }
+        val rawNum = tokens.lastOrNull { token -> token.any { c -> c.isDigit() } } ?: trimmed
+
+        val ftsFlow = if (category.isNullOrBlank() || category == "Todas") {
+            lawDao.searchArticlesFts(ftsExpression, rawNum)
         } else {
-            lawDao.searchArticlesFtsByCategory(ftsExpression, category)
+            lawDao.searchArticlesFtsByCategory(ftsExpression, category, rawNum)
+        }
+
+        return ftsFlow.catch { e ->
+            Log.w("LawRepository", "FTS5 query falhou ($ftsExpression), usando fallback LIKE", e)
+            val fallbackFlow = if (category.isNullOrBlank() || category == "Todas") {
+                lawDao.searchArticlesLike(trimmed)
+            } else {
+                lawDao.searchArticlesLikeByCategory(trimmed, category)
+            }
+            emitAll(fallbackFlow)
         }
     }
 

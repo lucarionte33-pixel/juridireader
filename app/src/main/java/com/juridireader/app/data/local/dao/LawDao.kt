@@ -60,10 +60,16 @@ interface LawDao {
         LEFT JOIN user_notes un ON a.id = un.article_id
         LEFT JOIN user_highlights uh ON a.id = uh.article_id
         WHERE articles_fts MATCH :ftsQuery
-        ORDER BY a.order_index ASC
+        ORDER BY 
+            CASE 
+                WHEN a.article_number LIKE '%' || :rawQuery || '%' THEN 0
+                WHEN a.id LIKE '%' || :rawQuery || '%' THEN 1
+                ELSE 2 
+            END ASC,
+            a.order_index ASC
         LIMIT 100
     """)
-    fun searchArticlesFts(ftsQuery: String): Flow<List<ArticleWithUserData>>
+    fun searchArticlesFts(ftsQuery: String, rawQuery: String): Flow<List<ArticleWithUserData>>
 
     @SkipQueryVerification
     @Query("""
@@ -84,10 +90,16 @@ interface LawDao {
         LEFT JOIN user_notes un ON a.id = un.article_id
         LEFT JOIN user_highlights uh ON a.id = uh.article_id
         WHERE articles_fts MATCH :ftsQuery AND a.category = :category
-        ORDER BY a.order_index ASC
+        ORDER BY 
+            CASE 
+                WHEN a.article_number LIKE '%' || :rawQuery || '%' THEN 0
+                WHEN a.id LIKE '%' || :rawQuery || '%' THEN 1
+                ELSE 2 
+            END ASC,
+            a.order_index ASC
         LIMIT 100
     """)
-    fun searchArticlesFtsByCategory(ftsQuery: String, category: String): Flow<List<ArticleWithUserData>>
+    fun searchArticlesFtsByCategory(ftsQuery: String, category: String, rawQuery: String): Flow<List<ArticleWithUserData>>
 
     @Query("""
         SELECT 
@@ -106,10 +118,42 @@ interface LawDao {
         LEFT JOIN user_notes un ON a.id = un.article_id
         LEFT JOIN user_highlights uh ON a.id = uh.article_id
         WHERE a.article_number LIKE '%' || :query || '%' OR a.content LIKE '%' || :query || '%'
-        ORDER BY a.order_index ASC
-        LIMIT 50
+        ORDER BY 
+            CASE 
+                WHEN a.article_number LIKE '%' || :query || '%' THEN 0 
+                ELSE 1 
+            END ASC,
+            a.order_index ASC
+        LIMIT 100
     """)
     fun searchArticlesLike(query: String): Flow<List<ArticleWithUserData>>
+
+    @Query("""
+        SELECT 
+            a.id, 
+            a.law_code AS lawCode, 
+            a.law_title AS lawTitle, 
+            a.category, 
+            a.article_number AS articleNumber, 
+            a.content, 
+            a.order_index AS orderIndex,
+            CASE WHEN uf.article_id IS NOT NULL THEN 1 ELSE 0 END AS isFavorite,
+            un.note_text AS userNote,
+            uh.color AS highlightColor
+        FROM articles a
+        LEFT JOIN user_favorites uf ON a.id = uf.article_id
+        LEFT JOIN user_notes un ON a.id = un.article_id
+        LEFT JOIN user_highlights uh ON a.id = uh.article_id
+        WHERE (a.article_number LIKE '%' || :query || '%' OR a.content LIKE '%' || :query || '%') AND a.category = :category
+        ORDER BY 
+            CASE 
+                WHEN a.article_number LIKE '%' || :query || '%' THEN 0 
+                ELSE 1 
+            END ASC,
+            a.order_index ASC
+        LIMIT 100
+    """)
+    fun searchArticlesLikeByCategory(query: String, category: String): Flow<List<ArticleWithUserData>>
 
     @Query("""
         SELECT 

@@ -28,7 +28,7 @@ import com.juridireader.app.ui.viewmodel.LawViewModel
 @Composable
 fun NotesScreen(
     viewModel: LawViewModel,
-    onNavigateToLaw: (String) -> Unit
+    onNavigateToArticle: (String, String) -> Unit
 ) {
     val customizedArticles by viewModel.customizedArticles.collectAsState()
 
@@ -65,7 +65,7 @@ fun NotesScreen(
                 items(customizedArticles, key = { it.id }) { article ->
                     CustomizedItemCard(
                         article = article,
-                        onClick = { onNavigateToLaw(article.lawCode) }
+                        onClick = { onNavigateToArticle(article.lawCode, article.id) }
                     )
                 }
             }

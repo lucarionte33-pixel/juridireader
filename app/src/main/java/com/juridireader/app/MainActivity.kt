@@ -108,8 +108,8 @@ fun MainAppNavHost(viewModel: LawViewModel) {
             composable(Screen.Search.route) {
                 SearchScreen(
                     viewModel = viewModel,
-                    onNavigateToLaw = { lawCode ->
-                        navController.navigate("reader/$lawCode")
+                    onNavigateToArticle = { lawCode, articleId ->
+                        navController.navigate("reader/$lawCode?articleId=$articleId")
                     }
                 )
             }
@@ -117,8 +117,8 @@ fun MainAppNavHost(viewModel: LawViewModel) {
             composable(Screen.Favorites.route) {
                 FavoritesScreen(
                     viewModel = viewModel,
-                    onNavigateToLaw = { lawCode ->
-                        navController.navigate("reader/$lawCode")
+                    onNavigateToArticle = { lawCode, articleId ->
+                        navController.navigate("reader/$lawCode?articleId=$articleId")
                     }
                 )
             }
@@ -126,19 +126,28 @@ fun MainAppNavHost(viewModel: LawViewModel) {
             composable(Screen.Notes.route) {
                 NotesScreen(
                     viewModel = viewModel,
-                    onNavigateToLaw = { lawCode ->
-                        navController.navigate("reader/$lawCode")
+                    onNavigateToArticle = { lawCode, articleId ->
+                        navController.navigate("reader/$lawCode?articleId=$articleId")
                     }
                 )
             }
 
             composable(
-                route = "reader/{lawCode}",
-                arguments = listOf(navArgument("lawCode") { type = NavType.StringType })
+                route = "reader/{lawCode}?articleId={articleId}",
+                arguments = listOf(
+                    navArgument("lawCode") { type = NavType.StringType },
+                    navArgument("articleId") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    }
+                )
             ) { backStackEntry ->
                 val lawCode = backStackEntry.arguments?.getString("lawCode") ?: "CF88"
+                val articleId = backStackEntry.arguments?.getString("articleId")
                 LawReaderScreen(
                     lawCode = lawCode,
+                    targetArticleId = articleId,
                     viewModel = viewModel,
                     onNavigateBack = { navController.popBackStack() }
                 )

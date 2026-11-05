@@ -2,12 +2,14 @@ package com.juridireader.app.ui.screens
 
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -34,6 +36,7 @@ import com.juridireader.app.util.PdfExporter
 @Composable
 fun LawReaderScreen(
     lawCode: String,
+    targetArticleId: String? = null,
     viewModel: LawViewModel,
     onNavigateBack: () -> Unit
 ) {
@@ -46,6 +49,9 @@ fun LawReaderScreen(
     val themeMode by viewModel.themeMode.collectAsState()
     val fontSizeSp by viewModel.fontSizeSp.collectAsState()
 
+    val listState = rememberLazyListState()
+    var hasScrolledToTarget by remember(lawCode, targetArticleId) { mutableStateOf(false) }
+
     var showSettingsDialog by remember { mutableStateOf(false) }
     var activeNoteArticle by remember { mutableStateOf<ArticleWithUserData?>(null) }
     var internalFilter by remember { mutableStateOf("") }
@@ -55,6 +61,16 @@ fun LawReaderScreen(
         else articles.filter {
             it.articleNumber.contains(internalFilter, ignoreCase = true) ||
                     it.content.contains(internalFilter, ignoreCase = true)
+        }
+    }
+
+    LaunchedEffect(displayedArticles, targetArticleId) {
+        if (!hasScrolledToTarget && !targetArticleId.isNullOrBlank() && displayedArticles.isNotEmpty()) {
+            val targetIndex = displayedArticles.indexOfFirst { it.id == targetArticleId }
+            if (targetIndex >= 0) {
+                listState.animateScrollToItem(targetIndex)
+                hasScrolledToTarget = true
+            }
         }
     }
 
@@ -142,6 +158,7 @@ fun LawReaderScreen(
 
             // Lista de Artigos
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
@@ -151,6 +168,7 @@ fun LawReaderScreen(
                 items(displayedArticles, key = { it.id }) { article ->
                     ArticleCard(
                         article = article,
+                        isTargeted = article.id == targetArticleId,
                         fontSizeSp = fontSizeSp,
                         onToggleFavorite = { viewModel.toggleFavorite(article.id, article.isFavorite) },
                         onHighlightSelected = { color -> viewModel.setHighlight(article.id, color) },
@@ -266,6 +284,7 @@ fun ThemeOptionChip(
 @Composable
 fun ArticleCard(
     article: ArticleWithUserData,
+    isTargeted: Boolean = false,
     fontSizeSp: Float,
     onToggleFavorite: () -> Unit,
     onHighlightSelected: (String?) -> Unit,
@@ -285,7 +304,8 @@ fun ArticleCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = cardBg),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isTargeted) 4.dp else 1.dp),
+        border = if (isTargeted) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             // Linha do Artigo com Botão de Favorito
