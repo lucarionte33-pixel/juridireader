@@ -151,4 +151,40 @@ class LawViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    fun saveTextHighlight(
+        articleId: String,
+        startOffset: Int,
+        endOffset: Int,
+        selectedText: String,
+        color: String
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.saveTextHighlight(articleId, startOffset, endOffset, selectedText, color)
+            } catch (e: Exception) {
+                Log.e("LawViewModel", "Erro ao salvar grifo de texto", e)
+            }
+        }
+    }
+
+    fun deleteTextHighlight(id: Long) {
+        viewModelScope.launch {
+            try {
+                repository.deleteTextHighlight(id)
+            } catch (e: Exception) {
+                Log.e("LawViewModel", "Erro ao excluir grifo de texto", e)
+            }
+        }
+    }
+
+    fun clearTextHighlightsForArticle(articleId: String) {
+        viewModelScope.launch {
+            try {
+                repository.clearTextHighlightsForArticle(articleId)
+            } catch (e: Exception) {
+                Log.e("LawViewModel", "Erro ao limpar grifos do artigo", e)
+            }
+        }
+    }
 }

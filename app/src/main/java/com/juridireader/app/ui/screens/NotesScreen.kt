@@ -144,6 +144,41 @@ fun CustomizedItemCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
+            // Trechos Grifados no Artigo
+            if (article.textHighlights.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    article.textHighlights.forEach { th ->
+                        val hlColor = HighlightColor.fromName(th.color)
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = hlColor.composeColor.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Highlight,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = Color.Black
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "“${th.selectedText}”",
+                                    fontSize = 12.sp,
+                                    fontStyle = FontStyle.Italic,
+                                    color = Color.Black,
+                                    maxLines = 2
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // Bloco de nota do usuário
             if (!article.userNote.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))

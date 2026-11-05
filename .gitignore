@@ -12,3 +12,4 @@ __pycache__/
 *.pyc
 *.apk
 app/build/
+scripts/.cache_laws/

@@ -196,4 +196,34 @@ object PdfExporter {
             null
         }
     }
+
+    fun exportCustomizedToPdf(
+        context: Context,
+        lawTitle: String,
+        articles: List<ArticleWithUserData>
+    ): File? {
+        val filtered = articles.filter { art ->
+            art.textHighlights.isNotEmpty() || !art.userNote.isNullOrBlank() || !art.highlightColor.isNullOrBlank()
+        }
+        if (filtered.isEmpty()) return null
+        return exportLawToPdf(context, "$lawTitle (Partes Grifadas & Anotações)", filtered)
+    }
+
+    fun exportSnippetToPdf(
+        context: Context,
+        lawTitle: String,
+        articleNumber: String,
+        selectedSnippet: String
+    ): File? {
+        val snippetArticle = ArticleWithUserData(
+            id = "SNIPPET",
+            lawCode = "",
+            lawTitle = lawTitle,
+            category = "",
+            articleNumber = articleNumber,
+            content = selectedSnippet,
+            orderIndex = 1
+        )
+        return exportLawToPdf(context, "$lawTitle - Trecho Selecionado", listOf(snippetArticle))
+    }
 }

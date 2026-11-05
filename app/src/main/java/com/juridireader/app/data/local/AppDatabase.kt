@@ -11,6 +11,7 @@ import com.juridireader.app.data.local.entity.LawMetadataEntity
 import com.juridireader.app.data.local.entity.UserFavoriteEntity
 import com.juridireader.app.data.local.entity.UserHighlightEntity
 import com.juridireader.app.data.local.entity.UserNoteEntity
+import com.juridireader.app.data.local.entity.UserTextHighlightEntity
 
 @Database(
     entities = [
@@ -18,7 +19,8 @@ import com.juridireader.app.data.local.entity.UserNoteEntity
         LawMetadataEntity::class,
         UserFavoriteEntity::class,
         UserNoteEntity::class,
-        UserHighlightEntity::class
+        UserHighlightEntity::class,
+        UserTextHighlightEntity::class
     ],
     version = 1,
     exportSchema = false

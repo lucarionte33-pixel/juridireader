@@ -191,7 +191,7 @@ interface LawDao {
         LEFT JOIN user_favorites uf ON a.id = uf.article_id
         LEFT JOIN user_notes un ON a.id = un.article_id
         LEFT JOIN user_highlights uh ON a.id = uh.article_id
-        WHERE un.note_text IS NOT NULL OR uh.color IS NOT NULL
+        WHERE un.note_text IS NOT NULL OR uh.color IS NOT NULL OR a.id IN (SELECT DISTINCT article_id FROM user_text_highlights)
         ORDER BY COALESCE(un.updated_at, uh.updated_at, 0) DESC
     """)
     fun getCustomizedArticles(): Flow<List<ArticleWithUserData>>

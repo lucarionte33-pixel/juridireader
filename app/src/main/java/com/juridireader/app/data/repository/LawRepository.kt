@@ -7,8 +7,10 @@ import com.juridireader.app.data.local.entity.LawMetadataEntity
 import com.juridireader.app.data.local.entity.UserFavoriteEntity
 import com.juridireader.app.data.local.entity.UserHighlightEntity
 import com.juridireader.app.data.local.entity.UserNoteEntity
+import com.juridireader.app.data.local.entity.UserTextHighlightEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flowOf
 
@@ -21,8 +23,17 @@ class LawRepository(private val database: AppDatabase) {
 
     fun getAllCategories(): Flow<List<String>> = lawDao.getAllCategories()
 
-    fun getArticlesForLaw(lawCode: String): Flow<List<ArticleWithUserData>> =
-        lawDao.getArticlesWithUserDataForLaw(lawCode)
+    fun getArticlesForLaw(lawCode: String): Flow<List<ArticleWithUserData>> {
+        return combine(
+            lawDao.getArticlesWithUserDataForLaw(lawCode),
+            customizationDao.getAllTextHighlights()
+        ) { articles, allHighlights ->
+            val highlightsByArt = allHighlights.groupBy { it.articleId }
+            articles.map { art ->
+                art.copy(textHighlights = highlightsByArt[art.id] ?: emptyList())
+            }
+        }
+    }
 
     fun searchArticles(query: String, category: String? = null): Flow<List<ArticleWithUserData>> {
         val trimmed = query.trim()
@@ -63,7 +74,46 @@ class LawRepository(private val database: AppDatabase) {
 
     fun getFavorites(): Flow<List<ArticleWithUserData>> = lawDao.getFavoriteArticles()
 
-    fun getCustomizedArticles(): Flow<List<ArticleWithUserData>> = lawDao.getCustomizedArticles()
+    fun getCustomizedArticles(): Flow<List<ArticleWithUserData>> {
+        return combine(
+            lawDao.getCustomizedArticles(),
+            customizationDao.getAllTextHighlights()
+        ) { articles, allHighlights ->
+            val highlightsByArt = allHighlights.groupBy { it.articleId }
+            articles.map { art ->
+                art.copy(textHighlights = highlightsByArt[art.id] ?: emptyList())
+            }
+        }
+    }
+
+    fun getAllTextHighlights(): Flow<List<UserTextHighlightEntity>> =
+        customizationDao.getAllTextHighlights()
+
+    suspend fun saveTextHighlight(
+        articleId: String,
+        startOffset: Int,
+        endOffset: Int,
+        selectedText: String,
+        color: String
+    ): Long {
+        return customizationDao.saveTextHighlight(
+            UserTextHighlightEntity(
+                articleId = articleId,
+                startOffset = startOffset,
+                endOffset = endOffset,
+                selectedText = selectedText,
+                color = color
+            )
+        )
+    }
+
+    suspend fun deleteTextHighlight(id: Long) {
+        customizationDao.deleteTextHighlight(id)
+    }
+
+    suspend fun clearTextHighlightsForArticle(articleId: String) {
+        customizationDao.clearTextHighlightsForArticle(articleId)
+    }
 
     suspend fun toggleFavorite(articleId: String, currentStatus: Boolean) {
         if (currentStatus) {

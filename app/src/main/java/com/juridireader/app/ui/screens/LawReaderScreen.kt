@@ -1,5 +1,6 @@
 package com.juridireader.app.ui.screens
 
+import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
@@ -12,7 +13,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,16 +24,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.juridireader.app.data.local.entity.ArticleWithUserData
 import com.juridireader.app.ui.model.AppThemeMode
 import com.juridireader.app.ui.model.HighlightColor
+import com.juridireader.app.ui.util.LegalTextFormatter
 import com.juridireader.app.ui.viewmodel.LawViewModel
 import com.juridireader.app.util.PdfExporter
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,7 +62,9 @@ fun LawReaderScreen(
     var hasScrolledToTarget by remember(lawCode, targetArticleId) { mutableStateOf(false) }
 
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
     var activeNoteArticle by remember { mutableStateOf<ArticleWithUserData?>(null) }
+    var activeHighlightArticle by remember { mutableStateOf<ArticleWithUserData?>(null) }
     var internalFilter by remember { mutableStateOf("") }
 
     val displayedArticles = remember(articles, internalFilter) {
@@ -78,6 +89,24 @@ fun LawReaderScreen(
         articles.firstOrNull()?.lawTitle ?: lawCode
     }
 
+    fun sharePdfFile(file: File?) {
+        if (file != null && file.exists()) {
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/pdf"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(shareIntent, "Compartilhar PDF"))
+        } else {
+            Toast.makeText(context, "Erro ao gerar PDF", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -97,29 +126,12 @@ fun LawReaderScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Voltar")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
                     }
                 },
                 actions = {
                     // Exportar PDF
-                    IconButton(onClick = {
-                        val pdfFile = PdfExporter.exportLawToPdf(context, lawTitle, articles)
-                        if (pdfFile != null && pdfFile.exists()) {
-                            val uri = FileProvider.getUriForFile(
-                                context,
-                                "${context.packageName}.fileprovider",
-                                pdfFile
-                            )
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "application/pdf"
-                                putExtra(Intent.EXTRA_STREAM, uri)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            context.startActivity(Intent.createChooser(shareIntent, "Compartilhar PDF"))
-                        } else {
-                            Toast.makeText(context, "Erro ao gerar PDF", Toast.LENGTH_SHORT).show()
-                        }
-                    }) {
+                    IconButton(onClick = { showExportDialog = true }) {
                         Icon(Icons.Default.PictureAsPdf, contentDescription = "Exportar PDF")
                     }
 
@@ -171,12 +183,214 @@ fun LawReaderScreen(
                         isTargeted = article.id == targetArticleId,
                         fontSizeSp = fontSizeSp,
                         onToggleFavorite = { viewModel.toggleFavorite(article.id, article.isFavorite) },
-                        onHighlightSelected = { color -> viewModel.setHighlight(article.id, color) },
+                        onOpenHighlightDialog = { activeHighlightArticle = article },
+                        onDeleteTextHighlight = { highlightId -> viewModel.deleteTextHighlight(highlightId) },
                         onOpenNoteDialog = { activeNoteArticle = article }
                     )
                 }
             }
         }
+    }
+
+    // Diálogo de Exportação para PDF
+    if (showExportDialog) {
+        AlertDialog(
+            onDismissRequest = { showExportDialog = false },
+            title = { Text("Exportar para PDF", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "Selecione o que deseja exportar deste documento:",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+
+                    Button(
+                        onClick = {
+                            showExportDialog = false
+                            val pdf = PdfExporter.exportLawToPdf(context, lawTitle, articles)
+                            sharePdfFile(pdf)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Exportar Lei Completa (${articles.size} artigos)")
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            showExportDialog = false
+                            val pdf = PdfExporter.exportCustomizedToPdf(context, lawTitle, articles)
+                            if (pdf != null) {
+                                sharePdfFile(pdf)
+                            } else {
+                                Toast.makeText(
+                                    context,
+                                    "Nenhum grifo ou anotação registrado nesta lei ainda.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.BorderColor, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Exportar Apenas Grifos & Anotações")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showExportDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    // Diálogo de Grifar Trecho Selecionado
+    activeHighlightArticle?.let { article ->
+        val headingMatch = remember(article.content) {
+            Regex("""^###\s*([^#]+?)\s*###\n*""").find(article.content)
+        }
+        val cleanBody = remember(article.content, headingMatch) {
+            if (headingMatch != null) article.content.substring(headingMatch.range.last + 1).trimStart()
+            else article.content
+        }
+
+        var textValue by remember {
+            mutableStateOf(TextFieldValue(cleanBody, selection = TextRange(0, 0)))
+        }
+
+        val selectedSnippet = remember(textValue.selection) {
+            if (!textValue.selection.collapsed) {
+                val start = textValue.selection.min.coerceIn(0, cleanBody.length)
+                val end = textValue.selection.max.coerceIn(start, cleanBody.length)
+                cleanBody.substring(start, end).trim()
+            } else ""
+        }
+
+        AlertDialog(
+            onDismissRequest = { activeHighlightArticle = null },
+            title = { Text("Grifar Trecho • ${article.articleNumber}", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Selecione uma palavra ou trecho no texto abaixo:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+
+                    OutlinedTextField(
+                        value = textValue,
+                        onValueChange = { textValue = it },
+                        readOnly = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(160.dp),
+                        textStyle = TextStyle(fontSize = 13.sp, lineHeight = 18.sp)
+                    )
+
+                    if (selectedSnippet.isNotBlank()) {
+                        Text(
+                            text = "Trecho selecionado:",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "“$selectedSnippet”",
+                                fontSize = 12.sp,
+                                fontStyle = FontStyle.Italic,
+                                maxLines = 3,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+
+                        Text("Escolha a cor do grifo:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            HighlightCircle(HighlightColor.YELLOW, false) {
+                                viewModel.saveTextHighlight(
+                                    article.id,
+                                    textValue.selection.min,
+                                    textValue.selection.max,
+                                    selectedSnippet,
+                                    "YELLOW"
+                                )
+                                activeHighlightArticle = null
+                            }
+                            HighlightCircle(HighlightColor.GREEN, false) {
+                                viewModel.saveTextHighlight(
+                                    article.id,
+                                    textValue.selection.min,
+                                    textValue.selection.max,
+                                    selectedSnippet,
+                                    "GREEN"
+                                )
+                                activeHighlightArticle = null
+                            }
+                            HighlightCircle(HighlightColor.BLUE, false) {
+                                viewModel.saveTextHighlight(
+                                    article.id,
+                                    textValue.selection.min,
+                                    textValue.selection.max,
+                                    selectedSnippet,
+                                    "BLUE"
+                                )
+                                activeHighlightArticle = null
+                            }
+                            HighlightCircle(HighlightColor.PINK, false) {
+                                viewModel.saveTextHighlight(
+                                    article.id,
+                                    textValue.selection.min,
+                                    textValue.selection.max,
+                                    selectedSnippet,
+                                    "PINK"
+                                )
+                                activeHighlightArticle = null
+                            }
+                        }
+
+                        // Exportar trecho para PDF
+                        OutlinedButton(
+                            onClick = {
+                                val pdf = PdfExporter.exportSnippetToPdf(
+                                    context,
+                                    lawTitle,
+                                    article.articleNumber,
+                                    selectedSnippet
+                                )
+                                sharePdfFile(pdf)
+                                activeHighlightArticle = null
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Exportar Trecho para PDF", fontSize = 12.sp)
+                        }
+                    } else {
+                        Text(
+                            "Dica: Toque duas vezes ou mantenha pressionado para selecionar o texto.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { activeHighlightArticle = null }) {
+                    Text("Fechar")
+                }
+            }
+        )
     }
 
     // Diálogo de Configuração de Leitura (Fonte e Modo Noturno / Sépia)
@@ -287,132 +501,197 @@ fun ArticleCard(
     isTargeted: Boolean = false,
     fontSizeSp: Float,
     onToggleFavorite: () -> Unit,
-    onHighlightSelected: (String?) -> Unit,
+    onOpenHighlightDialog: () -> Unit,
+    onDeleteTextHighlight: (Long) -> Unit,
     onOpenNoteDialog: () -> Unit
 ) {
-    val highlightColor = remember(article.highlightColor) {
-        HighlightColor.fromName(article.highlightColor)
+    // Extrair cabeçalho estrutural se houver prefixo "### TÍTULO ... ###"
+    val headingMatch = remember(article.content) {
+        Regex("""^###\s*([^#]+?)\s*###\n*""").find(article.content)
+    }
+    val headingTitle = headingMatch?.groups?.get(1)?.value
+    val cleanBody = remember(article.content, headingMatch) {
+        if (headingMatch != null) article.content.substring(headingMatch.range.last + 1).trimStart()
+        else article.content
     }
 
-    val cardBg = if (highlightColor != HighlightColor.NONE) {
-        highlightColor.composeColor.copy(alpha = 0.35f)
-    } else {
-        MaterialTheme.colorScheme.surface
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val formattedText = remember(cleanBody, article.textHighlights, primaryColor) {
+        LegalTextFormatter.formatArticleText(
+            content = cleanBody,
+            textHighlights = article.textHighlights,
+            primaryColor = primaryColor
+        )
     }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = cardBg),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isTargeted) 4.dp else 1.dp),
-        border = if (isTargeted) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            // Linha do Artigo com Botão de Favorito
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = article.articleNumber,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = (fontSizeSp + 1f).sp,
-                    color = MaterialTheme.colorScheme.primary
-                )
-
-                IconButton(onClick = onToggleFavorite, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                        imageVector = if (article.isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
-                        contentDescription = "Favoritar",
-                        tint = if (article.isFavorite) Color(0xFFFFB300) else MaterialTheme.colorScheme.outline
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Conteúdo do Artigo
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // Se houver Cabeçalho Estrutural (TÍTULO, CAPÍTULO, SEÇÃO), exibir no topo como em livro jurídico
+        if (!headingTitle.isNullOrBlank()) {
             Text(
-                text = article.content,
-                fontSize = fontSizeSp.sp,
-                lineHeight = (fontSizeSp * 1.45f).sp,
-                color = MaterialTheme.colorScheme.onSurface
+                text = headingTitle,
+                color = LegalTextFormatter.HeadingColor,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 10.dp)
             )
+        }
 
-            // Preview de Anotação (se houver)
-            if (!article.userNote.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(10.dp))
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFFFEF3C7)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(10.dp),
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.EditNote,
-                            contentDescription = null,
-                            tint = Color(0xFFD97706),
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = article.userNote,
-                            fontSize = 13.sp,
-                            fontStyle = FontStyle.Italic,
-                            color = Color(0xFF78350F)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Barra de Ações do Artigo: 4 Cores de Grifo + Anotação
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Cores de grifo
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = if (isTargeted) 4.dp else 1.dp),
+            border = if (isTargeted) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                // Linha do Artigo com Botão de Favorito
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    HighlightCircle(color = HighlightColor.YELLOW, isSelected = highlightColor == HighlightColor.YELLOW) {
-                        onHighlightSelected(if (highlightColor == HighlightColor.YELLOW) null else HighlightColor.YELLOW.name)
+                    Text(
+                        text = article.articleNumber,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = (fontSizeSp + 1f).sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    IconButton(onClick = onToggleFavorite, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            imageVector = if (article.isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
+                            contentDescription = "Favoritar",
+                            tint = if (article.isFavorite) Color(0xFFFFB300) else MaterialTheme.colorScheme.outline
+                        )
                     }
-                    HighlightCircle(color = HighlightColor.GREEN, isSelected = highlightColor == HighlightColor.GREEN) {
-                        onHighlightSelected(if (highlightColor == HighlightColor.GREEN) null else HighlightColor.GREEN.name)
-                    }
-                    HighlightCircle(color = HighlightColor.BLUE, isSelected = highlightColor == HighlightColor.BLUE) {
-                        onHighlightSelected(if (highlightColor == HighlightColor.BLUE) null else HighlightColor.BLUE.name)
-                    }
-                    HighlightCircle(color = HighlightColor.PINK, isSelected = highlightColor == HighlightColor.PINK) {
-                        onHighlightSelected(if (highlightColor == HighlightColor.PINK) null else HighlightColor.PINK.name)
-                    }
-                    if (highlightColor != HighlightColor.NONE) {
-                        IconButton(onClick = { onHighlightSelected(null) }, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.FormatColorReset, contentDescription = "Remover grifo", modifier = Modifier.size(16.dp))
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Conteúdo Formatado do Artigo com Justificação
+                SelectionContainer {
+                    Text(
+                        text = formattedText,
+                        fontSize = fontSizeSp.sp,
+                        lineHeight = (fontSizeSp * 1.55f).sp,
+                        textAlign = TextAlign.Justify,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                // Lista de Trechos Grifados neste Artigo
+                if (article.textHighlights.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        article.textHighlights.forEach { th ->
+                            val hlColor = HighlightColor.fromName(th.color)
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = hlColor.composeColor.copy(alpha = 0.45f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "“${th.selectedText}”",
+                                        fontSize = 12.sp,
+                                        fontStyle = FontStyle.Italic,
+                                        maxLines = 2,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(
+                                        onClick = { onDeleteTextHighlight(th.id) },
+                                        modifier = Modifier.size(22.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Remover trecho",
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
 
-                // Botão de Anotação
-                TextButton(onClick = onOpenNoteDialog) {
-                    Icon(
-                        imageVector = Icons.Default.NoteAlt,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        if (article.userNote.isNullOrBlank()) "Anotar" else "Editar Nota",
-                        fontSize = 12.sp
-                    )
+                // Preview de Anotação Pessoal (se houver)
+                if (!article.userNote.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFFEF3C7)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.EditNote,
+                                contentDescription = null,
+                                tint = Color(0xFFD97706),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = article.userNote,
+                                fontSize = 13.sp,
+                                fontStyle = FontStyle.Italic,
+                                color = Color(0xFF78350F)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Barra de Ações: Grifar Trecho Selecionado + Anotar
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Botão Grifar Trecho
+                    OutlinedButton(
+                        onClick = onOpenHighlightDialog,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.height(34.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.BorderColor,
+                            contentDescription = null,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Grifar Trecho", fontSize = 12.sp)
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Botão Anotar
+                    TextButton(
+                        onClick = onOpenNoteDialog,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.height(34.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.NoteAlt,
+                            contentDescription = null,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            if (article.userNote.isNullOrBlank()) "Anotar" else "Editar Nota",
+                            fontSize = 12.sp
+                        )
+                    }
                 }
             }
         }
@@ -427,7 +706,7 @@ fun HighlightCircle(
 ) {
     Box(
         modifier = Modifier
-            .size(24.dp)
+            .size(28.dp)
             .clip(CircleShape)
             .background(color.composeColor)
             .border(
