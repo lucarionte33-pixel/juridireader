@@ -32,5 +32,8 @@ data class ArticleEntity(
     val content: String,
 
     @ColumnInfo(name = "order_index")
-    val orderIndex: Int
+    val orderIndex: Int,
+
+    @ColumnInfo(name = "revoked_content")
+    val revokedContent: String? = null
 )

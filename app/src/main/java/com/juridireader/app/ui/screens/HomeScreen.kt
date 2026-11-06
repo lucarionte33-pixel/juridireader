@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -36,8 +37,11 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
 
     val filteredLaws = remember(laws, selectedCategory) {
-        if (selectedCategory == "Todas") laws
-        else laws.filter { it.category == selectedCategory }
+        when (selectedCategory) {
+            "Todas" -> laws
+            "Revogadas" -> laws.filter { it.code in listOf("CF88", "CC", "CP", "CPC", "CPP", "CLT", "CDC", "CTN", "LEI_8112", "LEI_7210") }
+            else -> laws.filter { it.category == selectedCategory }
+        }
     }
 
     ModalNavigationDrawer(
@@ -85,6 +89,21 @@ fun HomeScreen(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
                     )
                 }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(8.dp))
+
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.History, contentDescription = null) },
+                    label = { Text("Revogadas / Histórico") },
+                    selected = selectedCategory == "Revogadas",
+                    onClick = {
+                        selectedCategory = "Revogadas"
+                        scope.launch { drawerState.close() }
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
+                )
             }
         }
     ) {
@@ -145,6 +164,20 @@ fun HomeScreen(
                             selected = selectedCategory == cat,
                             onClick = { selectedCategory = cat },
                             label = { Text(cat) }
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = selectedCategory == "Revogadas",
+                            onClick = { selectedCategory = "Revogadas" },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.History,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            },
+                            label = { Text("Revogadas") }
                         )
                     }
                 }

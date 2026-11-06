@@ -384,9 +384,11 @@ def parse_law(html_text: str, law_info: dict):
 
     soup = BeautifulSoup(html_text, 'html.parser')
 
-    # Remover revogados
+    # Identificar e preservar trechos revogados antes de remover tags
     for tag in soup.find_all(['strike', 's', 'del']):
-        tag.decompose()
+        txt = tag.get_text(' ', strip=True)
+        if txt:
+            tag.replace_with(soup.new_string(f'\n[[[REV_START]]]\n{txt}\n[[[REV_END]]]\n'))
 
     # Converter <br> para nova linha
     for br in soup.find_all('br'):
@@ -410,7 +412,51 @@ def parse_law(html_text: str, law_info: dict):
     preamble_lines = []
     current_header = ""
 
+    pending_revoked = {}
+    in_revoked = False
+    rev_buffer = []
+
+    def finalize_article(art):
+        if not art:
+            return
+        art["content"] = format_clean_text("\n".join(art["raw_lines"]))
+        del art["raw_lines"]
+        if art.get("revoked_lines"):
+            art["revoked_content"] = format_clean_text("\n\n---\n\n".join(art["revoked_lines"]))
+            del art["revoked_lines"]
+        else:
+            art["revoked_content"] = None
+        articles.append(art)
+
     for line in raw_lines:
+        if '[[[REV_START]]]' in line:
+            in_revoked = True
+            line = line.replace('[[[REV_START]]]', '').strip()
+            if not line:
+                continue
+        if '[[[REV_END]]]' in line:
+            in_revoked = False
+            line = line.replace('[[[REV_END]]]', '').strip()
+            if line:
+                rev_buffer.append(line)
+            full_rev = ' '.join(rev_buffer).strip()
+            rev_buffer = []
+            if full_rev:
+                m_rev = art_regex.match(full_rev)
+                if m_rev:
+                    num = m_rev.group(1).rstrip('.:- ')
+                    sem = num.replace('.', '_').replace('-', '_').replace('º', '').replace('o', '').replace('ª', '').replace('a', '')
+                    pending_revoked.setdefault(sem, []).append(full_rev)
+                elif current_art:
+                    current_art.setdefault('revoked_lines', []).append(full_rev)
+                else:
+                    pending_revoked.setdefault('__GENERAL__', []).append(full_rev)
+            continue
+
+        if in_revoked:
+            rev_buffer.append(line)
+            continue
+
         # Detectar cabeçalho estrutural
         if re.match(r'^(LIVRO|T[ÍI]TULO|CAP[ÍI]TULO|SE[ÇC][ÃA]O|SUBSE[ÇC][ÃA]O|PARTE)\s+[IVXLCDM0-9A-Z]+', line, re.IGNORECASE):
             current_header = line
@@ -418,10 +464,7 @@ def parse_law(html_text: str, law_info: dict):
 
         m = art_regex.match(line)
         if m:
-            if current_art:
-                current_art["content"] = format_clean_text("\n".join(current_art["raw_lines"]))
-                del current_art["raw_lines"]
-                articles.append(current_art)
+            finalize_article(current_art)
 
             raw_num = m.group(1).rstrip('.:- ')
             semantic_num = raw_num.replace('.', '_').replace('-', '_').replace('º', '').replace('o', '').replace('ª', '').replace('a', '')
@@ -447,6 +490,7 @@ def parse_law(html_text: str, law_info: dict):
                 "category": category,
                 "article_number": display_num,
                 "raw_lines": [line],
+                "revoked_lines": pending_revoked.pop(semantic_num, []),
                 "order_index": order_idx,
                 "header_info": current_header
             }
@@ -459,10 +503,24 @@ def parse_law(html_text: str, law_info: dict):
                     if len(line) > 10 and len(preamble_lines) < 12:
                         preamble_lines.append(line)
 
-    if current_art:
-        current_art["content"] = format_clean_text("\n".join(current_art["raw_lines"]))
-        del current_art["raw_lines"]
-        articles.append(current_art)
+    finalize_article(current_art)
+
+    # Inserir artigos órfãos totalmente revogados
+    for sem, rev_list in pending_revoked.items():
+        if sem == '__GENERAL__':
+            continue
+        order_idx += 1
+        art_id = f"{code}_ART_{sem}_REV"
+        articles.append({
+            "id": art_id,
+            "law_code": code,
+            "law_title": title,
+            "category": category,
+            "article_number": f"Art. {sem} (Revogado)",
+            "content": "(Artigo totalmente revogado na legislação vigente)",
+            "revoked_content": format_clean_text("\n\n---\n\n".join(rev_list)),
+            "order_index": order_idx
+        })
 
     # Adicionar Preâmbulo se houver texto
     if preamble_lines:
@@ -474,6 +532,7 @@ def parse_law(html_text: str, law_info: dict):
             "category": category,
             "article_number": "Preâmbulo",
             "content": preamble_text,
+            "revoked_content": None,
             "order_index": 0,
             "header_info": title.upper()
         }
@@ -562,6 +621,7 @@ def generate_sumulas():
             "category": "Súmulas / Jurisprudência",
             "article_number": f"Súmula Vinculante {num}",
             "content": f"Enunciado da Súmula Vinculante nº {num}:\n\n\"{texto}\"",
+            "revoked_content": None,
             "order_index": order
         })
     return articles
@@ -616,7 +676,8 @@ def generate_full_database(output_path: str):
         category TEXT NOT NULL,
         article_number TEXT NOT NULL,
         content TEXT NOT NULL,
-        order_index INTEGER NOT NULL
+        order_index INTEGER NOT NULL,
+        revoked_content TEXT
     )
     """)
     cur.execute("CREATE INDEX idx_articles_law_code ON articles(law_code);")
@@ -639,8 +700,8 @@ def generate_full_database(output_path: str):
 
     # 3. Inserção dos Artigos
     cur.executemany("""
-    INSERT INTO articles (id, law_code, law_title, category, article_number, content, order_index)
-    VALUES (:id, :law_code, :law_title, :category, :article_number, :content, :order_index)
+    INSERT INTO articles (id, law_code, law_title, category, article_number, content, order_index, revoked_content)
+    VALUES (:id, :law_code, :law_title, :category, :article_number, :content, :order_index, :revoked_content)
     """, all_articles)
 
     # 4. FTS5 Virtual Table (sem acentos, case-insensitive)
@@ -699,7 +760,7 @@ def generate_full_database(output_path: str):
     # Injetar room_master_table e user_version para Room
     cur.execute("CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY, identity_hash TEXT)")
     cur.execute("INSERT OR REPLACE INTO room_master_table (id, identity_hash) VALUES(42, '2486d11e4e96379e1f340cc9b55d5f69')")
-    cur.execute("PRAGMA user_version = 1;")
+    cur.execute("PRAGMA user_version = 2;")
     conn.commit()
     conn.close()
 

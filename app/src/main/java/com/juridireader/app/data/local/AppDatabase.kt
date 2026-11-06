@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.juridireader.app.data.local.dao.LawDao
 import com.juridireader.app.data.local.dao.UserCustomizationDao
 import com.juridireader.app.data.local.entity.ArticleEntity
@@ -22,7 +24,7 @@ import com.juridireader.app.data.local.entity.UserTextHighlightEntity
         UserHighlightEntity::class,
         UserTextHighlightEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -34,6 +36,27 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS user_text_highlights (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        article_id TEXT NOT NULL,
+                        start_offset INTEGER NOT NULL,
+                        end_offset INTEGER NOT NULL,
+                        selected_text TEXT NOT NULL,
+                        color TEXT NOT NULL,
+                        created_at INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_user_text_highlights_art ON user_text_highlights(article_id)")
+                try {
+                    db.execSQL("ALTER TABLE articles ADD COLUMN revoked_content TEXT")
+                } catch (_: Exception) {
+                }
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -42,6 +65,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "juridireader.db"
                 )
                     .createFromAsset("juridireader.db")
+                    .addMigrations(MIGRATION_1_2)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

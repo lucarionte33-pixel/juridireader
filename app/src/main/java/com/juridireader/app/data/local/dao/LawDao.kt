@@ -31,7 +31,8 @@ interface LawDao {
             a.order_index AS orderIndex,
             CASE WHEN uf.article_id IS NOT NULL THEN 1 ELSE 0 END AS isFavorite,
             un.note_text AS userNote,
-            uh.color AS highlightColor
+            uh.color AS highlightColor,
+            a.revoked_content AS revokedContent
         FROM articles a
         LEFT JOIN user_favorites uf ON a.id = uf.article_id
         LEFT JOIN user_notes un ON a.id = un.article_id
@@ -53,7 +54,8 @@ interface LawDao {
             a.order_index AS orderIndex,
             CASE WHEN uf.article_id IS NOT NULL THEN 1 ELSE 0 END AS isFavorite,
             un.note_text AS userNote,
-            uh.color AS highlightColor
+            uh.color AS highlightColor,
+            a.revoked_content AS revokedContent
         FROM articles_fts fts
         JOIN articles a ON fts.id = a.id
         LEFT JOIN user_favorites uf ON a.id = uf.article_id
@@ -83,7 +85,8 @@ interface LawDao {
             a.order_index AS orderIndex,
             CASE WHEN uf.article_id IS NOT NULL THEN 1 ELSE 0 END AS isFavorite,
             un.note_text AS userNote,
-            uh.color AS highlightColor
+            uh.color AS highlightColor,
+            a.revoked_content AS revokedContent
         FROM articles_fts fts
         JOIN articles a ON fts.id = a.id
         LEFT JOIN user_favorites uf ON a.id = uf.article_id
@@ -112,7 +115,8 @@ interface LawDao {
             a.order_index AS orderIndex,
             CASE WHEN uf.article_id IS NOT NULL THEN 1 ELSE 0 END AS isFavorite,
             un.note_text AS userNote,
-            uh.color AS highlightColor
+            uh.color AS highlightColor,
+            a.revoked_content AS revokedContent
         FROM articles a
         LEFT JOIN user_favorites uf ON a.id = uf.article_id
         LEFT JOIN user_notes un ON a.id = un.article_id
@@ -139,7 +143,8 @@ interface LawDao {
             a.order_index AS orderIndex,
             CASE WHEN uf.article_id IS NOT NULL THEN 1 ELSE 0 END AS isFavorite,
             un.note_text AS userNote,
-            uh.color AS highlightColor
+            uh.color AS highlightColor,
+            a.revoked_content AS revokedContent
         FROM articles a
         LEFT JOIN user_favorites uf ON a.id = uf.article_id
         LEFT JOIN user_notes un ON a.id = un.article_id
@@ -166,7 +171,8 @@ interface LawDao {
             a.order_index AS orderIndex,
             1 AS isFavorite,
             un.note_text AS userNote,
-            uh.color AS highlightColor
+            uh.color AS highlightColor,
+            a.revoked_content AS revokedContent
         FROM user_favorites uf
         JOIN articles a ON uf.article_id = a.id
         LEFT JOIN user_notes un ON a.id = un.article_id
@@ -186,7 +192,8 @@ interface LawDao {
             a.order_index AS orderIndex,
             CASE WHEN uf.article_id IS NOT NULL THEN 1 ELSE 0 END AS isFavorite,
             un.note_text AS userNote,
-            uh.color AS highlightColor
+            uh.color AS highlightColor,
+            a.revoked_content AS revokedContent
         FROM articles a
         LEFT JOIN user_favorites uf ON a.id = uf.article_id
         LEFT JOIN user_notes un ON a.id = un.article_id

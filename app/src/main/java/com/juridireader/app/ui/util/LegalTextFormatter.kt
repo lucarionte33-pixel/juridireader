@@ -76,8 +76,19 @@ object LegalTextFormatter {
 
             // 5. Aplicar Grifos selecionados pelo usuário (UserTextHighlightEntity)
             for (h in textHighlights) {
-                val start = h.startOffset.coerceIn(0, content.length)
-                val end = h.endOffset.coerceIn(start, content.length)
+                var start = h.startOffset.coerceIn(0, content.length)
+                var end = h.endOffset.coerceIn(start, content.length)
+                if (h.selectedText.isNotBlank()) {
+                    val snippet = h.selectedText
+                    val matchesExact = (start < end && content.substring(start, end) == snippet)
+                    if (!matchesExact) {
+                        val idx = content.indexOf(snippet)
+                        if (idx >= 0) {
+                            start = idx
+                            end = idx + snippet.length
+                        }
+                    }
+                }
                 if (start < end) {
                     val colorEnum = HighlightColor.fromName(h.color)
                     val bgColor = if (colorEnum != HighlightColor.NONE) {

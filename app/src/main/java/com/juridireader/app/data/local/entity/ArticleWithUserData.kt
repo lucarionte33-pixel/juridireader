@@ -13,6 +13,7 @@ data class ArticleWithUserData(
     val isFavorite: Boolean = false,
     val userNote: String? = null,
     val highlightColor: String? = null,
+    val revokedContent: String? = null,
     @Ignore
     val textHighlights: List<UserTextHighlightEntity> = emptyList()
 ) {
@@ -27,7 +28,8 @@ data class ArticleWithUserData(
         orderIndex: Int,
         isFavorite: Boolean,
         userNote: String?,
-        highlightColor: String?
+        highlightColor: String?,
+        revokedContent: String?
     ) : this(
         id = id,
         lawCode = lawCode,
@@ -39,6 +41,7 @@ data class ArticleWithUserData(
         isFavorite = isFavorite,
         userNote = userNote,
         highlightColor = highlightColor,
+        revokedContent = revokedContent,
         textHighlights = emptyList()
     )
 }

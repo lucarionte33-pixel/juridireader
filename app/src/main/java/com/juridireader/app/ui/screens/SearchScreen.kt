@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -23,7 +24,8 @@ import com.juridireader.app.ui.viewmodel.LawViewModel
 @Composable
 fun SearchScreen(
     viewModel: LawViewModel,
-    onNavigateToArticle: (String, String) -> Unit
+    onNavigateToArticle: (String, String) -> Unit,
+    onNavigateBack: () -> Unit = {}
 ) {
     val query by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
@@ -33,7 +35,12 @@ fun SearchScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Busca Instantânea FTS5", fontWeight = FontWeight.Bold) }
+                title = { Text("Busca Instantânea FTS5", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
+                    }
+                }
             )
         }
     ) { padding ->

@@ -74,12 +74,21 @@ fun MainAppNavHost(viewModel: LawViewModel) {
                             label = { Text(screen.title) },
                             selected = currentRoute == screen.route,
                             onClick = {
-                                navController.navigate(screen.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
+                                if (screen == Screen.Home) {
+                                    navController.navigate(Screen.Home.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            inclusive = false
+                                        }
+                                        launchSingleTop = true
                                     }
-                                    launchSingleTop = true
-                                    restoreState = true
+                                } else {
+                                    navController.navigate(screen.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
                                 }
                             }
                         )
@@ -110,6 +119,14 @@ fun MainAppNavHost(viewModel: LawViewModel) {
                     viewModel = viewModel,
                     onNavigateToArticle = { lawCode, articleId ->
                         navController.navigate("reader/$lawCode?articleId=$articleId")
+                    },
+                    onNavigateBack = {
+                        navController.navigate(Screen.Home.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                inclusive = false
+                            }
+                            launchSingleTop = true
+                        }
                     }
                 )
             }

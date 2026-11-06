@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -66,13 +67,21 @@ fun LawReaderScreen(
     var activeNoteArticle by remember { mutableStateOf<ArticleWithUserData?>(null) }
     var activeHighlightArticle by remember { mutableStateOf<ArticleWithUserData?>(null) }
     var internalFilter by remember { mutableStateOf("") }
+    var showOnlyRevoked by remember { mutableStateOf(false) }
 
-    val displayedArticles = remember(articles, internalFilter) {
-        if (internalFilter.isBlank()) articles
-        else articles.filter {
-            it.articleNumber.contains(internalFilter, ignoreCase = true) ||
-                    it.content.contains(internalFilter, ignoreCase = true)
+    val displayedArticles = remember(articles, internalFilter, showOnlyRevoked) {
+        var list = articles
+        if (showOnlyRevoked) {
+            list = list.filter { !it.revokedContent.isNullOrBlank() }
         }
+        if (internalFilter.isNotBlank()) {
+            list = list.filter {
+                it.articleNumber.contains(internalFilter, ignoreCase = true) ||
+                        it.content.contains(internalFilter, ignoreCase = true) ||
+                        (it.revokedContent?.contains(internalFilter, ignoreCase = true) == true)
+            }
+        }
+        list
     }
 
     LaunchedEffect(displayedArticles, targetArticleId) {
@@ -130,6 +139,18 @@ fun LawReaderScreen(
                     }
                 },
                 actions = {
+                    // Alternar filtro de artigos com redações anteriores/revogadas
+                    val hasAnyRevoked = remember(articles) { articles.any { !it.revokedContent.isNullOrBlank() } }
+                    if (hasAnyRevoked) {
+                        IconButton(onClick = { showOnlyRevoked = !showOnlyRevoked }) {
+                            Icon(
+                                Icons.Default.HistoryEdu,
+                                contentDescription = if (showOnlyRevoked) "Mostrar todos artigos" else "Filtrar revogados",
+                                tint = if (showOnlyRevoked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
                     // Exportar PDF
                     IconButton(onClick = { showExportDialog = true }) {
                         Icon(Icons.Default.PictureAsPdf, contentDescription = "Exportar PDF")
@@ -324,6 +345,7 @@ fun LawReaderScreen(
                                     selectedSnippet,
                                     "YELLOW"
                                 )
+                                Toast.makeText(context, "Trecho grifado!", Toast.LENGTH_SHORT).show()
                                 activeHighlightArticle = null
                             }
                             HighlightCircle(HighlightColor.GREEN, false) {
@@ -334,6 +356,7 @@ fun LawReaderScreen(
                                     selectedSnippet,
                                     "GREEN"
                                 )
+                                Toast.makeText(context, "Trecho grifado!", Toast.LENGTH_SHORT).show()
                                 activeHighlightArticle = null
                             }
                             HighlightCircle(HighlightColor.BLUE, false) {
@@ -344,6 +367,7 @@ fun LawReaderScreen(
                                     selectedSnippet,
                                     "BLUE"
                                 )
+                                Toast.makeText(context, "Trecho grifado!", Toast.LENGTH_SHORT).show()
                                 activeHighlightArticle = null
                             }
                             HighlightCircle(HighlightColor.PINK, false) {
@@ -354,13 +378,21 @@ fun LawReaderScreen(
                                     selectedSnippet,
                                     "PINK"
                                 )
+                                Toast.makeText(context, "Trecho grifado!", Toast.LENGTH_SHORT).show()
                                 activeHighlightArticle = null
                             }
                         }
 
-                        // Exportar trecho para PDF
+                        // Exportar trecho para PDF e salvar grifo
                         OutlinedButton(
                             onClick = {
+                                viewModel.saveTextHighlight(
+                                    article.id,
+                                    textValue.selection.min,
+                                    textValue.selection.max,
+                                    selectedSnippet,
+                                    "YELLOW"
+                                )
                                 val pdf = PdfExporter.exportSnippetToPdf(
                                     context,
                                     lawTitle,
@@ -368,13 +400,14 @@ fun LawReaderScreen(
                                     selectedSnippet
                                 )
                                 sharePdfFile(pdf)
+                                Toast.makeText(context, "Trecho grifado e exportado!", Toast.LENGTH_SHORT).show()
                                 activeHighlightArticle = null
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("Exportar Trecho para PDF", fontSize = 12.sp)
+                            Text("Grifar e Exportar Trecho para PDF", fontSize = 12.sp)
                         }
                     } else {
                         Text(
@@ -615,6 +648,68 @@ fun ArticleCard(
                                             modifier = Modifier.size(14.dp)
                                         )
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Bloco Expansível: Redação Anterior / Revogada (se houver)
+                if (!article.revokedContent.isNullOrBlank()) {
+                    var isRevokedExpanded by remember { mutableStateOf(false) }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = { isRevokedExpanded = !isRevokedExpanded },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = Color(0xFF991B1B)
+                        ),
+                        border = BorderStroke(1.dp, Color(0xFFFECDD3)),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isRevokedExpanded) Icons.Default.ExpandLess else Icons.Default.History,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = Color(0xFF991B1B)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isRevokedExpanded) "Ocultar Redação Anterior (Revogada)" else "📜 Ver Redação Anterior (Revogada)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF991B1B)
+                        )
+                    }
+
+                    if (isRevokedExpanded) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFFFF1F2),
+                            border = BorderStroke(1.dp, Color(0xFFFDA4AF))
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "Texto Anterior (Revogado / Alterado):",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF991B1B)
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                SelectionContainer {
+                                    Text(
+                                        text = article.revokedContent,
+                                        fontSize = (fontSizeSp - 1f).sp,
+                                        lineHeight = ((fontSizeSp - 1f) * 1.45f).sp,
+                                        textAlign = TextAlign.Justify,
+                                        style = TextStyle(
+                                            textDecoration = TextDecoration.LineThrough,
+                                            color = Color(0xFF7F1D1D)
+                                        )
+                                    )
                                 }
                             }
                         }
