@@ -759,7 +759,7 @@ def generate_full_database(output_path: str):
 
     # Injetar room_master_table e user_version para Room
     cur.execute("CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY, identity_hash TEXT)")
-    cur.execute("INSERT OR REPLACE INTO room_master_table (id, identity_hash) VALUES(42, '2486d11e4e96379e1f340cc9b55d5f69')")
+    cur.execute("INSERT OR REPLACE INTO room_master_table (id, identity_hash) VALUES(42, 'bfb01156b90d43da6b26ba19337ebd54')")
     cur.execute("PRAGMA user_version = 2;")
     conn.commit()
     conn.close()
