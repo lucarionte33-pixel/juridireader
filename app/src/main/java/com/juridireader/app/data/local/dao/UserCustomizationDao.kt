@@ -58,4 +58,41 @@ interface UserCustomizationDao {
 
     @Query("SELECT * FROM user_text_highlights ORDER BY created_at DESC")
     fun getAllTextHighlights(): Flow<List<UserTextHighlightEntity>>
+
+    // Operações em lote para Exportação / Importação Offline
+    @Query("SELECT * FROM user_favorites")
+    suspend fun getAllFavoritesSync(): List<UserFavoriteEntity>
+
+    @Query("SELECT * FROM user_notes")
+    suspend fun getAllNotesSync(): List<UserNoteEntity>
+
+    @Query("SELECT * FROM user_highlights")
+    suspend fun getAllHighlightsSync(): List<UserHighlightEntity>
+
+    @Query("SELECT * FROM user_text_highlights")
+    suspend fun getAllTextHighlightsSync(): List<UserTextHighlightEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertFavorites(favorites: List<UserFavoriteEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertNotes(notes: List<UserNoteEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertHighlights(highlights: List<UserHighlightEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTextHighlights(highlights: List<UserTextHighlightEntity>)
+
+    @Query("DELETE FROM user_favorites")
+    suspend fun deleteAllFavorites()
+
+    @Query("DELETE FROM user_notes")
+    suspend fun deleteAllNotes()
+
+    @Query("DELETE FROM user_highlights")
+    suspend fun deleteAllHighlights()
+
+    @Query("DELETE FROM user_text_highlights")
+    suspend fun deleteAllTextHighlights()
 }

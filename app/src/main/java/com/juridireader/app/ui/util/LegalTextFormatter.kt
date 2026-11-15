@@ -17,6 +17,13 @@ object LegalTextFormatter {
     val HeadingColor = Color(0xFF8B1E3F)
     val SubtleRefColor = Color(0xFF6B7280)
 
+    private val headingPrefixRegex = Regex("""^###\s*([^#]+?)\s*###\n*""")
+
+    fun stripHeadingMarker(content: String): String {
+        val m = headingPrefixRegex.find(content)
+        return if (m != null) content.substring(m.range.last + 1).trimStart() else content
+    }
+
     fun formatArticleText(
         content: String,
         textHighlights: List<UserTextHighlightEntity> = emptyList(),
@@ -97,7 +104,7 @@ object LegalTextFormatter {
                         Color(0xFFFEF08A)
                     }
                     addStyle(
-                        style = SpanStyle(background = bgColor),
+                        style = SpanStyle(background = bgColor, color = Color.Black),
                         start = start,
                         end = end
                     )

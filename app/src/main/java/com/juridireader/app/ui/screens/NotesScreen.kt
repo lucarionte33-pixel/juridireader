@@ -9,10 +9,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Highlight
+import androidx.compose.material.icons.filled.ImportExport
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -21,7 +25,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.juridireader.app.data.local.entity.ArticleWithUserData
+import com.juridireader.app.ui.components.BackupTransferDialog
 import com.juridireader.app.ui.model.HighlightColor
+import com.juridireader.app.ui.util.LegalTextFormatter
 import com.juridireader.app.ui.viewmodel.LawViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -31,11 +37,25 @@ fun NotesScreen(
     onNavigateToArticle: (String, String) -> Unit
 ) {
     val customizedArticles by viewModel.customizedArticles.collectAsState()
+    var showBackupDialog by remember { mutableStateOf(false) }
+
+    if (showBackupDialog) {
+        BackupTransferDialog(
+            viewModel = viewModel,
+            initialTab = 0,
+            onDismiss = { showBackupDialog = false }
+        )
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Grifos & Anotações", fontWeight = FontWeight.Bold) }
+                title = { Text("Grifos & Anotações", fontWeight = FontWeight.Bold) },
+                actions = {
+                    IconButton(onClick = { showBackupDialog = true }) {
+                        Icon(Icons.Default.ImportExport, contentDescription = "Backup Offline")
+                    }
+                }
             )
         }
     ) { padding ->
@@ -138,7 +158,7 @@ fun CustomizedItemCard(
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = article.content,
+                text = LegalTextFormatter.stripHeadingMarker(article.content),
                 maxLines = 2,
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant

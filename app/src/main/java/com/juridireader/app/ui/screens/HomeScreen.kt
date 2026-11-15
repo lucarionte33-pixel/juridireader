@@ -5,10 +5,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.ImportExport
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -19,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.juridireader.app.data.local.entity.LawMetadataEntity
+import com.juridireader.app.ui.components.BackupTransferDialog
 import com.juridireader.app.ui.viewmodel.LawViewModel
 import kotlinx.coroutines.launch
 
@@ -31,15 +35,25 @@ fun HomeScreen(
 ) {
     val laws by viewModel.allLaws.collectAsState()
     val categories by viewModel.categories.collectAsState()
+    val lawCodesWithRevoked by viewModel.lawCodesWithRevoked.collectAsState()
     var selectedCategory by remember { mutableStateOf("Todas") }
+    var showBackupDialog by remember { mutableStateOf(false) }
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
-    val filteredLaws = remember(laws, selectedCategory) {
+    if (showBackupDialog) {
+        BackupTransferDialog(
+            viewModel = viewModel,
+            initialTab = 0,
+            onDismiss = { showBackupDialog = false }
+        )
+    }
+
+    val filteredLaws = remember(laws, selectedCategory, lawCodesWithRevoked) {
         when (selectedCategory) {
             "Todas" -> laws
-            "Revogadas" -> laws.filter { it.code in listOf("CF88", "CC", "CP", "CPC", "CPP", "CLT", "CDC", "CTN", "LEI_8112", "LEI_7210") }
+            "Revogadas" -> laws.filter { it.code in lawCodesWithRevoked }
             else -> laws.filter { it.category == selectedCategory }
         }
     }
@@ -48,6 +62,12 @@ fun HomeScreen(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet(modifier = Modifier.width(280.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = 16.dp)
+                ) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     text = "Vade Mecum",
@@ -104,6 +124,22 @@ fun HomeScreen(
                     },
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
                 )
+
+                Spacer(modifier = Modifier.height(8.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(8.dp))
+
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.ImportExport, contentDescription = null) },
+                    label = { Text("Exportar / Importar Backup") },
+                    selected = false,
+                    onClick = {
+                        scope.launch { drawerState.close() }
+                        showBackupDialog = true
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
+                )
+                }
             }
         }
     ) {

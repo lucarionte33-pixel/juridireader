@@ -20,6 +20,9 @@ interface LawDao {
     @Query("SELECT DISTINCT category FROM laws_metadata ORDER BY category ASC")
     fun getAllCategories(): Flow<List<String>>
 
+    @Query("SELECT DISTINCT law_code FROM articles WHERE revoked_content IS NOT NULL AND revoked_content != ''")
+    fun getLawCodesWithRevokedContent(): Flow<List<String>>
+
     @Query("""
         SELECT 
             a.id, 

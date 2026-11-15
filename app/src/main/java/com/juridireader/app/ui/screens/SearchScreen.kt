@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.juridireader.app.data.local.entity.ArticleWithUserData
+import com.juridireader.app.ui.util.LegalTextFormatter
 import com.juridireader.app.ui.viewmodel.LawViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -101,7 +102,7 @@ fun SearchScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        "Digite termos jurídicos para buscar em todos os 6.800+ artigos offline.",
+                        "Digite termos jurídicos para buscar em todos os 12.200+ artigos offline.",
                         color = MaterialTheme.colorScheme.outline,
                         fontSize = 14.sp
                     )
@@ -185,7 +186,7 @@ fun SearchResultCard(
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = article.content,
+                text = LegalTextFormatter.stripHeadingMarker(article.content),
                 maxLines = 3,
                 fontSize = 13.sp,
                 lineHeight = 18.sp,

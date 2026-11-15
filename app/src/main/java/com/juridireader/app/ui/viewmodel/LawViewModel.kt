@@ -1,6 +1,7 @@
 package com.juridireader.app.ui.viewmodel
 
 import android.app.Application
+import android.content.Context
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -8,6 +9,11 @@ import com.juridireader.app.JuridiReaderApp
 import com.juridireader.app.data.local.entity.ArticleWithUserData
 import com.juridireader.app.data.local.entity.LawMetadataEntity
 import com.juridireader.app.ui.model.AppThemeMode
+import com.juridireader.app.util.BackupCodeCodec
+import com.juridireader.app.util.ImportMode
+import com.juridireader.app.util.ImportSummary
+import com.juridireader.app.util.UserBackupPayload
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,19 +25,28 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class LawViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = (application as JuridiReaderApp).repository
+    private val prefs = application.getSharedPreferences("juridireader_prefs", Context.MODE_PRIVATE)
 
-    // Configurações visuais do leitor
-    private val _themeMode = MutableStateFlow(AppThemeMode.LIGHT)
+    // Configurações visuais do leitor (persistidas localmente)
+    private val _themeMode = MutableStateFlow(
+        runCatching {
+            AppThemeMode.valueOf(prefs.getString("theme_mode", AppThemeMode.LIGHT.name) ?: AppThemeMode.LIGHT.name)
+        }.getOrDefault(AppThemeMode.LIGHT)
+    )
     val themeMode: StateFlow<AppThemeMode> = _themeMode.asStateFlow()
 
-    private val _fontSizeSp = MutableStateFlow(16f)
+    private val _fontSizeSp = MutableStateFlow(
+        prefs.getFloat("font_size_sp", 16f).coerceIn(12f, 28f)
+    )
     val fontSizeSp: StateFlow<Float> = _fontSizeSp.asStateFlow()
 
     // Leis e Categorias
@@ -48,6 +63,14 @@ class LawViewModel(application: Application) : AndroidViewModel(application) {
             emit(emptyList())
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val lawCodesWithRevoked: StateFlow<Set<String>> = repository.getLawCodesWithRevokedContent()
+        .map { it.toSet() }
+        .catch { e ->
+            Log.e("LawViewModel", "Erro ao carregar leis com revogações", e)
+            emit(emptySet())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
     // Lei atualmente aberta no leitor
     private val _selectedLawCode = MutableStateFlow<String?>(null)
@@ -116,10 +139,13 @@ class LawViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setThemeMode(mode: AppThemeMode) {
         _themeMode.value = mode
+        prefs.edit().putString("theme_mode", mode.name).apply()
     }
 
     fun setFontSize(sizeSp: Float) {
-        _fontSizeSp.value = sizeSp.coerceIn(12f, 28f)
+        val clamped = sizeSp.coerceIn(12f, 28f)
+        _fontSizeSp.value = clamped
+        prefs.edit().putFloat("font_size_sp", clamped).apply()
     }
 
     fun toggleFavorite(articleId: String, currentStatus: Boolean) {
@@ -185,6 +211,39 @@ class LawViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 Log.e("LawViewModel", "Erro ao limpar grifos do artigo", e)
             }
+        }
+    }
+
+    // Exportação e Importação Offline (Códigos Longos)
+    fun generateBackupCode(onResult: (Result<Pair<String, UserBackupPayload>>) -> Unit) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val payload = repository.exportBackupPayload()
+                    val code = BackupCodeCodec.encode(payload)
+                    Pair(code, payload)
+                }
+            }
+            onResult(result)
+        }
+    }
+
+    fun previewBackupCode(rawCode: String): Result<UserBackupPayload> {
+        return BackupCodeCodec.decode(rawCode)
+    }
+
+    fun importBackupCode(
+        rawCode: String,
+        mode: ImportMode,
+        onResult: (Result<ImportSummary>) -> Unit
+    ) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                BackupCodeCodec.decode(rawCode).mapCatching { payload ->
+                    repository.importBackupPayload(payload, mode)
+                }
+            }
+            onResult(result)
         }
     }
 }

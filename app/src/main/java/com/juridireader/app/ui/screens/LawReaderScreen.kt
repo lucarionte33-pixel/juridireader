@@ -635,6 +635,7 @@ fun ArticleCard(
                                         text = "“${th.selectedText}”",
                                         fontSize = 12.sp,
                                         fontStyle = FontStyle.Italic,
+                                        color = Color.Black,
                                         maxLines = 2,
                                         modifier = Modifier.weight(1f)
                                     )
@@ -645,6 +646,7 @@ fun ArticleCard(
                                         Icon(
                                             Icons.Default.Close,
                                             contentDescription = "Remover trecho",
+                                            tint = Color.Black,
                                             modifier = Modifier.size(14.dp)
                                         )
                                     }
