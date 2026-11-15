@@ -29,7 +29,8 @@ jobs:
 
       - name: Extrair Leis e Gerar Banco SQLite
         run: |
-          python scripts/extract_laws.py
+          python scripts/build_full_vademecum.py
+          python -c "import sqlite3, sys; c=sqlite3.connect('app/src/main/assets/juridireader.db'); laws=c.execute('SELECT count(*) FROM laws_metadata').fetchone()[0]; arts=c.execute('SELECT count(*) FROM articles').fetchone()[0]; ver=c.execute('PRAGMA user_version').fetchone()[0]; print(f'Validation: laws={laws}, articles={arts}, user_version={ver}'); sys.exit(0 if laws >= 40 and arts >= 10000 and ver == 2 else 1)"
 
       - name: Verificar Alterações e Commitar
         run: |
