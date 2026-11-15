@@ -11,5 +11,11 @@ local.properties
 __pycache__/
 *.pyc
 *.apk
+*.aab
+*.ap_
 app/build/
 scripts/.cache_laws/
+keystore/
+keystore.properties
+*.jks
+*.keystore
