@@ -1,18 +1,20 @@
 package com.juridireader.app.ui.screens
 
-import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -28,6 +30,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
@@ -38,19 +41,30 @@ import com.juridireader.app.data.local.entity.ArticleWithUserData
 import com.juridireader.app.ui.model.AppThemeMode
 import com.juridireader.app.ui.model.HighlightColor
 import com.juridireader.app.ui.util.LegalTextFormatter
+import com.juridireader.app.ui.util.SearchTextHighlighter
 import com.juridireader.app.ui.viewmodel.LawViewModel
 import com.juridireader.app.util.PdfExporter
+import kotlinx.coroutines.launch
 import java.io.File
+
+private data class InTextMatch(
+    val articleIndex: Int,
+    val articleId: String,
+    val range: IntRange
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LawReaderScreen(
     lawCode: String,
     targetArticleId: String? = null,
+    initialSearchQuery: String? = null,
     viewModel: LawViewModel,
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     LaunchedEffect(lawCode) {
         viewModel.selectLaw(lawCode)
     }
@@ -58,6 +72,7 @@ fun LawReaderScreen(
     val articles by viewModel.currentLawArticles.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
     val fontSizeSp by viewModel.fontSizeSp.collectAsState()
+    val justifyText by viewModel.justifyText.collectAsState()
 
     val listState = rememberLazyListState()
     var hasScrolledToTarget by remember(lawCode, targetArticleId) { mutableStateOf(false) }
@@ -66,26 +81,81 @@ fun LawReaderScreen(
     var showExportDialog by remember { mutableStateOf(false) }
     var activeNoteArticle by remember { mutableStateOf<ArticleWithUserData?>(null) }
     var activeHighlightArticle by remember { mutableStateOf<ArticleWithUserData?>(null) }
-    var internalFilter by remember { mutableStateOf("") }
+
+    val startWithQuery = remember(initialSearchQuery) { initialSearchQuery?.trim().orEmpty() }
+    var isSearchBarVisible by remember(lawCode, startWithQuery) {
+        mutableStateOf(startWithQuery.isNotEmpty())
+    }
+    var inTextQuery by remember(lawCode, startWithQuery) {
+        mutableStateOf(startWithQuery)
+    }
+    var activeMatchIndex by remember(lawCode, startWithQuery) { mutableStateOf(0) }
+    var hasInitializedMatchFromTarget by remember(lawCode, targetArticleId, startWithQuery) {
+        mutableStateOf(false)
+    }
     var showOnlyRevoked by remember { mutableStateOf(false) }
 
-    val displayedArticles = remember(articles, internalFilter, showOnlyRevoked) {
-        var list = articles
+    val displayedArticles = remember(articles, showOnlyRevoked) {
         if (showOnlyRevoked) {
-            list = list.filter { !it.revokedContent.isNullOrBlank() }
+            articles.filter { !it.revokedContent.isNullOrBlank() }
+        } else {
+            articles
         }
-        if (internalFilter.isNotBlank()) {
-            list = list.filter {
-                it.articleNumber.contains(internalFilter, ignoreCase = true) ||
-                        it.content.contains(internalFilter, ignoreCase = true) ||
-                        (it.revokedContent?.contains(internalFilter, ignoreCase = true) == true)
-            }
-        }
-        list
     }
 
-    LaunchedEffect(displayedArticles, targetArticleId) {
-        if (!hasScrolledToTarget && !targetArticleId.isNullOrBlank() && displayedArticles.isNotEmpty()) {
+    // Calcular todas as ocorrências na lei (estilo Ctrl+F de navegador) mantendo contexto de leitura
+    val searchResultsByArticle = remember(displayedArticles, inTextQuery) {
+        if (inTextQuery.isBlank()) {
+            emptyMap()
+        } else {
+            buildMap {
+                displayedArticles.forEach { article ->
+                    val body = LegalTextFormatter.stripHeadingMarker(article.content)
+                    val ranges = SearchTextHighlighter.findMatchRanges(body, inTextQuery)
+                    if (ranges.isNotEmpty()) {
+                        put(article.id, ranges)
+                    }
+                }
+            }
+        }
+    }
+
+    val allMatches = remember(displayedArticles, searchResultsByArticle) {
+        if (searchResultsByArticle.isEmpty()) {
+            emptyList()
+        } else {
+            buildList {
+                displayedArticles.forEachIndexed { idx, article ->
+                    val ranges = searchResultsByArticle[article.id].orEmpty()
+                    ranges.forEach { r ->
+                        add(InTextMatch(articleIndex = idx, articleId = article.id, range = r))
+                    }
+                }
+            }
+        }
+    }
+
+    // Reposicionar índice ativo quando query ou lista de matches mudar
+    LaunchedEffect(allMatches, targetArticleId) {
+        if (allMatches.isEmpty()) {
+            activeMatchIndex = 0
+        } else if (!hasInitializedMatchFromTarget && !targetArticleId.isNullOrBlank()) {
+            val targetMatchIdx = allMatches.indexOfFirst { it.articleId == targetArticleId }
+            activeMatchIndex = if (targetMatchIdx >= 0) targetMatchIdx else 0
+            hasInitializedMatchFromTarget = true
+            listState.animateScrollToItem(allMatches[activeMatchIndex].articleIndex)
+        } else if (activeMatchIndex >= allMatches.size) {
+            activeMatchIndex = 0
+        }
+    }
+
+    // Rolar até o artigo alvo mesmo quando aberto sem busca textual (Favoritos / Notas)
+    LaunchedEffect(displayedArticles, targetArticleId, startWithQuery) {
+        if (!hasScrolledToTarget &&
+            startWithQuery.isEmpty() &&
+            !targetArticleId.isNullOrBlank() &&
+            displayedArticles.isNotEmpty()
+        ) {
             val targetIndex = displayedArticles.indexOfFirst { it.id == targetArticleId }
             if (targetIndex >= 0) {
                 listState.animateScrollToItem(targetIndex)
@@ -93,6 +163,18 @@ fun LawReaderScreen(
             }
         }
     }
+
+    fun navigateToMatch(newIndex: Int) {
+        if (allMatches.isEmpty()) return
+        val wrapped = ((newIndex % allMatches.size) + allMatches.size) % allMatches.size
+        activeMatchIndex = wrapped
+        val targetItemIdx = allMatches[wrapped].articleIndex
+        scope.launch {
+            listState.animateScrollToItem(targetItemIdx)
+        }
+    }
+
+    val activeMatch = allMatches.getOrNull(activeMatchIndex)
 
     val lawTitle = remember(articles) {
         articles.firstOrNull()?.lawTitle ?: lawCode
@@ -139,6 +221,20 @@ fun LawReaderScreen(
                     }
                 },
                 actions = {
+                    // Abrir / fechar busca na página estilo navegador
+                    IconButton(onClick = {
+                        isSearchBarVisible = !isSearchBarVisible
+                        if (!isSearchBarVisible) {
+                            inTextQuery = ""
+                        }
+                    }) {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = "Buscar no texto",
+                            tint = if (isSearchBarVisible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
                     // Alternar filtro de artigos com redações anteriores/revogadas
                     val hasAnyRevoked = remember(articles) { articles.any { !it.revokedContent.isNullOrBlank() } }
                     if (hasAnyRevoked) {
@@ -169,40 +265,141 @@ fun LawReaderScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // Barra de busca rápida dentro da lei
-            OutlinedTextField(
-                value = internalFilter,
-                onValueChange = { internalFilter = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                placeholder = { Text("Filtrar artigos nesta lei...", fontSize = 14.sp) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                trailingIcon = {
-                    if (internalFilter.isNotEmpty()) {
-                        IconButton(onClick = { internalFilter = "" }) {
-                            Icon(Icons.Default.Close, contentDescription = "Limpar")
+            // Barra "Buscar no texto" estilo navegador com navegação < > e contador de ocorrências
+            AnimatedVisibility(visible = isSearchBarVisible) {
+                Surface(
+                    tonalElevation = 2.dp,
+                    shadowElevation = 2.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = inTextQuery,
+                            onValueChange = { newVal ->
+                                inTextQuery = newVal
+                                activeMatchIndex = 0
+                                if (newVal.isNotBlank()) {
+                                    // Calcular rápido primeiro artigo com ocorrência para rolar de imediato
+                                    val firstIdx = displayedArticles.indexOfFirst { art ->
+                                        val body = LegalTextFormatter.stripHeadingMarker(art.content)
+                                        SearchTextHighlighter.findMatchRanges(body, newVal).isNotEmpty()
+                                    }
+                                    if (firstIdx >= 0) {
+                                        scope.launch { listState.animateScrollToItem(firstIdx) }
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text("Buscar no texto...", fontSize = 14.sp) },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                            trailingIcon = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (inTextQuery.isNotEmpty()) {
+                                        IconButton(onClick = {
+                                            inTextQuery = ""
+                                            activeMatchIndex = 0
+                                        }) {
+                                            Icon(Icons.Default.Clear, contentDescription = "Limpar")
+                                        }
+                                    }
+                                    IconButton(onClick = {
+                                        isSearchBarVisible = false
+                                        inTextQuery = ""
+                                    }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Fechar busca")
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(
+                                onSearch = { navigateToMatch(activeMatchIndex + 1) }
+                            ),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+
+                        if (inTextQuery.isNotBlank()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                OutlinedIconButton(
+                                    onClick = { navigateToMatch(activeMatchIndex - 1) },
+                                    enabled = allMatches.isNotEmpty(),
+                                    modifier = Modifier.size(34.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.ChevronLeft,
+                                        contentDescription = "Ocorrência anterior"
+                                    )
+                                }
+
+                                OutlinedIconButton(
+                                    onClick = { navigateToMatch(activeMatchIndex + 1) },
+                                    enabled = allMatches.isNotEmpty(),
+                                    modifier = Modifier.size(34.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.ChevronRight,
+                                        contentDescription = "Próxima ocorrência"
+                                    )
+                                }
+
+                                val countLabel = when (allMatches.size) {
+                                    0 -> "Nenhum resultado"
+                                    1 -> "1 de 1 ocorrência"
+                                    else -> "${activeMatchIndex + 1} de ${allMatches.size} ocorrências"
+                                }
+                                Text(
+                                    text = countLabel,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (allMatches.isEmpty()) {
+                                        MaterialTheme.colorScheme.error
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    modifier = Modifier.padding(start = 6.dp)
+                                )
+                            }
                         }
                     }
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(10.dp)
-            )
+                }
+            }
 
-            // Lista de Artigos
+            // Lista de Artigos com layout limpo de Vade Mecum
             LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                contentPadding = PaddingValues(bottom = 32.dp, top = 8.dp)
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                contentPadding = PaddingValues(bottom = 36.dp, top = 8.dp)
             ) {
-                items(displayedArticles, key = { it.id }) { article ->
+                itemsIndexed(displayedArticles, key = { _, art -> art.id }) { _, article ->
+                    val articleMatches = searchResultsByArticle[article.id].orEmpty()
+                    val activeRangeForArticle = if (activeMatch?.articleId == article.id) {
+                        activeMatch.range
+                    } else {
+                        null
+                    }
+                    val highlightBorder = (article.id == targetArticleId && activeMatch == null) ||
+                        (activeRangeForArticle != null)
+
                     ArticleCard(
                         article = article,
-                        isTargeted = article.id == targetArticleId,
+                        isTargeted = highlightBorder,
                         fontSizeSp = fontSizeSp,
+                        themeMode = themeMode,
+                        justifyText = justifyText,
+                        searchMatches = articleMatches,
+                        activeSearchMatch = activeRangeForArticle,
                         onToggleFavorite = { viewModel.toggleFavorite(article.id, article.isFavorite) },
                         onOpenHighlightDialog = { activeHighlightArticle = article },
                         onDeleteTextHighlight = { highlightId -> viewModel.deleteTextHighlight(highlightId) },
@@ -270,12 +467,8 @@ fun LawReaderScreen(
 
     // Diálogo de Grifar Trecho Selecionado
     activeHighlightArticle?.let { article ->
-        val headingMatch = remember(article.content) {
-            Regex("""^###\s*([^#]+?)\s*###\n*""").find(article.content)
-        }
-        val cleanBody = remember(article.content, headingMatch) {
-            if (headingMatch != null) article.content.substring(headingMatch.range.last + 1).trimStart()
-            else article.content
+        val cleanBody = remember(article.content) {
+            LegalTextFormatter.stripHeadingMarker(article.content)
         }
 
         var textValue by remember {
@@ -337,50 +530,21 @@ fun LawReaderScreen(
                             horizontalArrangement = Arrangement.SpaceEvenly,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            HighlightCircle(HighlightColor.YELLOW, false) {
-                                viewModel.saveTextHighlight(
-                                    article.id,
-                                    textValue.selection.min,
-                                    textValue.selection.max,
-                                    selectedSnippet,
-                                    "YELLOW"
-                                )
-                                Toast.makeText(context, "Trecho grifado!", Toast.LENGTH_SHORT).show()
-                                activeHighlightArticle = null
-                            }
-                            HighlightCircle(HighlightColor.GREEN, false) {
-                                viewModel.saveTextHighlight(
-                                    article.id,
-                                    textValue.selection.min,
-                                    textValue.selection.max,
-                                    selectedSnippet,
-                                    "GREEN"
-                                )
-                                Toast.makeText(context, "Trecho grifado!", Toast.LENGTH_SHORT).show()
-                                activeHighlightArticle = null
-                            }
-                            HighlightCircle(HighlightColor.BLUE, false) {
-                                viewModel.saveTextHighlight(
-                                    article.id,
-                                    textValue.selection.min,
-                                    textValue.selection.max,
-                                    selectedSnippet,
-                                    "BLUE"
-                                )
-                                Toast.makeText(context, "Trecho grifado!", Toast.LENGTH_SHORT).show()
-                                activeHighlightArticle = null
-                            }
-                            HighlightCircle(HighlightColor.PINK, false) {
-                                viewModel.saveTextHighlight(
-                                    article.id,
-                                    textValue.selection.min,
-                                    textValue.selection.max,
-                                    selectedSnippet,
-                                    "PINK"
-                                )
-                                Toast.makeText(context, "Trecho grifado!", Toast.LENGTH_SHORT).show()
-                                activeHighlightArticle = null
-                            }
+                            HighlightColor.entries
+                                .filter { it != HighlightColor.NONE }
+                                .forEach { hlColor ->
+                                    HighlightCircle(hlColor, false) {
+                                        viewModel.saveTextHighlight(
+                                            article.id,
+                                            textValue.selection.min,
+                                            textValue.selection.max,
+                                            selectedSnippet,
+                                            hlColor.name
+                                        )
+                                        Toast.makeText(context, "Trecho grifado!", Toast.LENGTH_SHORT).show()
+                                        activeHighlightArticle = null
+                                    }
+                                }
                         }
 
                         // Exportar trecho para PDF e salvar grifo
@@ -426,7 +590,7 @@ fun LawReaderScreen(
         )
     }
 
-    // Diálogo de Configuração de Leitura (Fonte e Modo Noturno / Sépia)
+    // Diálogo de Configuração de Leitura (Fonte, Tema e Alinhamento)
     if (showSettingsDialog) {
         AlertDialog(
             onDismissRequest = { showSettingsDialog = false },
@@ -460,6 +624,25 @@ fun LawReaderScreen(
                             label = "Escuro",
                             isSelected = themeMode == AppThemeMode.DARK,
                             onClick = { viewModel.setThemeMode(AppThemeMode.DARK) }
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Texto Justificado", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(
+                                "Alinha ambas as margens do texto",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                        Switch(
+                            checked = justifyText,
+                            onCheckedChange = { viewModel.setJustifyText(it) }
                         )
                     }
                 }
@@ -533,84 +716,85 @@ fun ArticleCard(
     article: ArticleWithUserData,
     isTargeted: Boolean = false,
     fontSizeSp: Float,
+    themeMode: AppThemeMode = AppThemeMode.LIGHT,
+    justifyText: Boolean = false,
+    searchMatches: List<IntRange> = emptyList(),
+    activeSearchMatch: IntRange? = null,
     onToggleFavorite: () -> Unit,
     onOpenHighlightDialog: () -> Unit,
     onDeleteTextHighlight: (Long) -> Unit,
     onOpenNoteDialog: () -> Unit
 ) {
-    // Extrair cabeçalho estrutural se houver prefixo "### TÍTULO ... ###"
-    val headingMatch = remember(article.content) {
-        Regex("""^###\s*([^#]+?)\s*###\n*""").find(article.content)
-    }
-    val headingTitle = headingMatch?.groups?.get(1)?.value
-    val cleanBody = remember(article.content, headingMatch) {
-        if (headingMatch != null) article.content.substring(headingMatch.range.last + 1).trimStart()
-        else article.content
+    val (headingTitle, cleanBody) = remember(article.content) {
+        LegalTextFormatter.extractHeadingAndBody(article.content)
     }
 
+    val isDark = themeMode == AppThemeMode.DARK
     val primaryColor = MaterialTheme.colorScheme.primary
-    val formattedText = remember(cleanBody, article.textHighlights, primaryColor) {
+    val headingColor = if (isDark) LegalTextFormatter.HeadingColorDark else LegalTextFormatter.HeadingColor
+    val refColor = if (isDark) Color(0xFF94A3B8) else LegalTextFormatter.SubtleRefColor
+
+    val formattedHeading = remember(headingTitle, headingColor) {
+        headingTitle?.let { LegalTextFormatter.formatHeadingText(it, headingColor) }
+    }
+
+    val formattedText = remember(cleanBody, article.textHighlights, primaryColor, refColor, searchMatches, activeSearchMatch) {
         LegalTextFormatter.formatArticleText(
             content = cleanBody,
             textHighlights = article.textHighlights,
-            primaryColor = primaryColor
+            primaryColor = primaryColor,
+            refColor = refColor,
+            searchMatches = searchMatches,
+            activeSearchMatch = activeSearchMatch
         )
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        // Se houver Cabeçalho Estrutural (TÍTULO, CAPÍTULO, SEÇÃO), exibir no topo como em livro jurídico
-        if (!headingTitle.isNullOrBlank()) {
+        // Cabeçalho Estrutural (LIVRO, TÍTULO, CAPÍTULO, SEÇÃO) centralizado estilo Vade Mecum
+        if (formattedHeading != null) {
             Text(
-                text = headingTitle,
-                color = LegalTextFormatter.HeadingColor,
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp,
+                text = formattedHeading,
+                fontSize = (fontSizeSp - 0.5f).coerceAtLeast(13f).sp,
+                lineHeight = (fontSizeSp * 1.4f).sp,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 10.dp)
+                    .padding(top = 18.dp, bottom = 12.dp, start = 8.dp, end = 8.dp)
             )
         }
 
-        Card(
+        Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(10.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = if (isTargeted) 4.dp else 1.dp),
-            border = if (isTargeted) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
+            color = if (isTargeted) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+            } else {
+                Color.Transparent
+            },
+            border = if (isTargeted) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null
         ) {
-            Column(modifier = Modifier.padding(14.dp)) {
-                // Linha do Artigo com Botão de Favorito
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+            Column(modifier = Modifier.padding(horizontal = if (isTargeted) 12.dp else 2.dp, vertical = 8.dp)) {
+                if (article.articleNumber == "Preâmbulo") {
                     Text(
-                        text = article.articleNumber,
+                        text = article.lawTitle.uppercase(),
                         fontWeight = FontWeight.Bold,
-                        fontSize = (fontSizeSp + 1f).sp,
-                        color = MaterialTheme.colorScheme.primary
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 10.dp)
                     )
-
-                    IconButton(onClick = onToggleFavorite, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            imageVector = if (article.isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
-                            contentDescription = "Favoritar",
-                            tint = if (article.isFavorite) Color(0xFFFFB300) else MaterialTheme.colorScheme.outline
-                        )
-                    }
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Conteúdo Formatado do Artigo com Justificação
+                // Conteúdo Formatado do Artigo sem duplicar título "Art. X"
                 SelectionContainer {
                     Text(
                         text = formattedText,
                         fontSize = fontSizeSp.sp,
                         lineHeight = (fontSizeSp * 1.55f).sp,
-                        textAlign = TextAlign.Justify,
+                        textAlign = if (justifyText) TextAlign.Justify else TextAlign.Start,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
@@ -659,29 +843,31 @@ fun ArticleCard(
                 // Bloco Expansível: Redação Anterior / Revogada (se houver)
                 if (!article.revokedContent.isNullOrBlank()) {
                     var isRevokedExpanded by remember { mutableStateOf(false) }
-                    Spacer(modifier = Modifier.height(10.dp))
+                    val revTint = if (isDark) Color(0xFFFCA5A5) else Color(0xFF991B1B)
+                    val revBg = if (isDark) Color(0xFF450A0A) else Color(0xFFFFF1F2)
+                    val revBorder = if (isDark) Color(0xFF7F1D1D) else Color(0xFFFECDD3)
+
+                    Spacer(modifier = Modifier.height(8.dp))
                     OutlinedButton(
                         onClick = { isRevokedExpanded = !isRevokedExpanded },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = Color(0xFF991B1B)
-                        ),
-                        border = BorderStroke(1.dp, Color(0xFFFECDD3)),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = revTint),
+                        border = BorderStroke(1.dp, revBorder),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                     ) {
                         Icon(
                             imageVector = if (isRevokedExpanded) Icons.Default.ExpandLess else Icons.Default.History,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
-                            tint = Color(0xFF991B1B)
+                            tint = revTint
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (isRevokedExpanded) "Ocultar Redação Anterior (Revogada)" else "📜 Ver Redação Anterior (Revogada)",
+                            text = if (isRevokedExpanded) "Ocultar Redação Anterior (Revogada)" else "Ver Redação Anterior (Revogada)",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF991B1B)
+                            color = revTint
                         )
                     }
 
@@ -690,15 +876,15 @@ fun ArticleCard(
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFFFFF1F2),
-                            border = BorderStroke(1.dp, Color(0xFFFDA4AF))
+                            color = revBg,
+                            border = BorderStroke(1.dp, revBorder)
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
                                 Text(
                                     text = "Texto Anterior (Revogado / Alterado):",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 11.sp,
-                                    color = Color(0xFF991B1B)
+                                    color = revTint
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 SelectionContainer {
@@ -706,10 +892,10 @@ fun ArticleCard(
                                         text = article.revokedContent,
                                         fontSize = (fontSizeSp - 1f).sp,
                                         lineHeight = ((fontSizeSp - 1f) * 1.45f).sp,
-                                        textAlign = TextAlign.Justify,
+                                        textAlign = if (justifyText) TextAlign.Justify else TextAlign.Start,
                                         style = TextStyle(
                                             textDecoration = TextDecoration.LineThrough,
-                                            color = Color(0xFF7F1D1D)
+                                            color = revTint
                                         )
                                     )
                                 }
@@ -720,7 +906,7 @@ fun ArticleCard(
 
                 // Preview de Anotação Pessoal (se houver)
                 if (!article.userNote.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp),
@@ -747,41 +933,48 @@ fun ArticleCard(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
-                // Barra de Ações: Grifar Trecho Selecionado + Anotar
+                // Barra compacta de ações do artigo (Favoritar, Grifar Trecho, Anotar)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Botão Grifar Trecho
-                    OutlinedButton(
+                    IconButton(onClick = onToggleFavorite, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            imageVector = if (article.isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
+                            contentDescription = "Favoritar",
+                            tint = if (article.isFavorite) Color(0xFFFFB300) else MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    TextButton(
                         onClick = onOpenHighlightDialog,
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        modifier = Modifier.height(34.dp)
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        modifier = Modifier.height(32.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.BorderColor,
                             contentDescription = null,
-                            modifier = Modifier.size(15.dp)
+                            modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Grifar Trecho", fontSize = 12.sp)
+                        Text("Grifar", fontSize = 12.sp)
                     }
 
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    // Botão Anotar
                     TextButton(
                         onClick = onOpenNoteDialog,
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        modifier = Modifier.height(34.dp)
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        modifier = Modifier.height(32.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.NoteAlt,
                             contentDescription = null,
-                            modifier = Modifier.size(15.dp)
+                            modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
@@ -792,6 +985,12 @@ fun ArticleCard(
                 }
             }
         }
+
+        HorizontalDivider(
+            thickness = 0.5.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+            modifier = Modifier.padding(top = 4.dp)
+        )
     }
 }
 

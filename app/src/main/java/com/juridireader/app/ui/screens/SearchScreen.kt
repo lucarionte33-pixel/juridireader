@@ -14,18 +14,22 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.juridireader.app.data.local.entity.ArticleWithUserData
 import com.juridireader.app.ui.util.LegalTextFormatter
+import com.juridireader.app.ui.util.SearchTextHighlighter
 import com.juridireader.app.ui.viewmodel.LawViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
     viewModel: LawViewModel,
-    onNavigateToArticle: (String, String) -> Unit,
+    onNavigateToArticle: (String, String, String) -> Unit,
     onNavigateBack: () -> Unit = {}
 ) {
     val query by viewModel.searchQuery.collectAsState()
@@ -102,7 +106,7 @@ fun SearchScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        "Digite termos jurídicos para buscar em todos os 12.200+ artigos offline.",
+                        "Digite termos jurídicos para buscar em todos os 11.400+ artigos offline.",
                         color = MaterialTheme.colorScheme.outline,
                         fontSize = 14.sp
                     )
@@ -137,7 +141,8 @@ fun SearchScreen(
                     items(searchResults, key = { it.id }) { article ->
                         SearchResultCard(
                             article = article,
-                            onClick = { onNavigateToArticle(article.lawCode, article.id) }
+                            query = query,
+                            onClick = { onNavigateToArticle(article.lawCode, article.id, query) }
                         )
                     }
                 }
@@ -149,6 +154,7 @@ fun SearchScreen(
 @Composable
 fun SearchResultCard(
     article: ArticleWithUserData,
+    query: String,
     onClick: () -> Unit
 ) {
     Card(
@@ -185,8 +191,29 @@ fun SearchResultCard(
 
             Spacer(modifier = Modifier.height(6.dp))
 
+            val previewBody = remember(article.content) {
+                LegalTextFormatter.stripHeadingMarker(article.content)
+            }
+            val previewHighlighted = remember(previewBody, query) {
+                val ranges = SearchTextHighlighter.findMatchRanges(previewBody, query)
+                buildAnnotatedString {
+                    append(previewBody)
+                    for (r in ranges) {
+                        addStyle(
+                            style = SpanStyle(
+                                background = Color(0xFFFDE047),
+                                color = Color.Black,
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            start = r.first,
+                            end = r.last + 1
+                        )
+                    }
+                }
+            }
+
             Text(
-                text = LegalTextFormatter.stripHeadingMarker(article.content),
+                text = previewHighlighted,
                 maxLines = 3,
                 fontSize = 13.sp,
                 lineHeight = 18.sp,

@@ -40,6 +40,8 @@ abstract class AppDatabase : RoomDatabase() {
         private var INSTANCE: AppDatabase? = null
 
         const val EXPECTED_IDENTITY_HASH = "bfb01156b90d43da6b26ba19337ebd54"
+        private const val PREPACKAGED_DB_REVISION = 3
+        private const val KEY_DB_REVISION = "prepackaged_db_revision"
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -64,9 +66,11 @@ abstract class AppDatabase : RoomDatabase() {
 
         private fun preparePrepackagedDatabase(context: Context) {
             try {
+                val prefs = context.getSharedPreferences("juridireader_prefs", Context.MODE_PRIVATE)
+                val savedRevision = prefs.getInt(KEY_DB_REVISION, 0)
                 val dbFile = context.getDatabasePath("juridireader.db")
                 if (dbFile.exists()) {
-                    var needsFreshCopy = false
+                    var needsFreshCopy = savedRevision < PREPACKAGED_DB_REVISION
                     var lawCount = 0
                     var hasRevoked = false
 
@@ -194,6 +198,7 @@ abstract class AppDatabase : RoomDatabase() {
                         }
                     }
                 }
+                prefs.edit().putInt(KEY_DB_REVISION, PREPACKAGED_DB_REVISION).apply()
             } catch (e: Exception) {
                 Log.e("AppDatabase", "Erro geral em preparePrepackagedDatabase", e)
             }

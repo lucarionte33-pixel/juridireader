@@ -349,24 +349,39 @@ def download_law(url, code):
             continue
     return raw.decode('latin1', errors='replace')
 
-def format_clean_text(text: str) -> str:
-    # 1. Normalizar quebras de linha e tabs
+def normalize_punctuation(text: str) -> str:
     clean = text.replace('\r', '').replace('\xa0', ' ')
     clean = re.sub(r'[ \t]+', ' ', clean)
+    clean = re.sub(r'\s+([,.;:\)])', r'\1', clean)
+    clean = re.sub(r'\(\s+', '(', clean)
+    clean = re.sub(r'\s+º', 'º', clean)
+    clean = re.sub(r'\s+ª', 'ª', clean)
+    return clean.strip()
+
+def format_clean_text(text: str) -> str:
+    clean = normalize_punctuation(text)
     clean = re.sub(r'\n\s*\n+', '\n\n', clean).strip()
 
-    # 2. Separar incisos em linhas novas com espaçamento limpo: I -, II -, III -, etc.
-    clean = re.sub(r'([;:])\s+([IVXLCDM]+\s*[-–—])', r'\1\n\n\2', clean)
-    clean = re.sub(r'(?<=\.)\s+([IVXLCDM]+\s*[-–—])', r'\n\n\1', clean)
+    # Separar incisos em parágrafos próprios quando antecedidos de ; : ou .
+    clean = re.sub(r'([;:.])\s+([IVXLCDM]+\s*[-–—]\s)', r'\1\n\n\2', clean)
 
-    # 3. Separar parágrafos: § 1º, Parágrafo único.
-    clean = re.sub(r'\s+(Par[áa]grafo\s+[úu]nico\.?)', r'\n\n\1', clean, flags=re.IGNORECASE)
-    clean = re.sub(r'\s+(§\s*[0-9]+[ºoªa\.\-]*)', r'\n\n\1', clean)
+    # Separar parágrafos (§ 1º, Parágrafo único.) apenas após pontuação final de frase
+    clean = re.sub(r'([.;:)])\s+(Par[áa]grafo\s+[úu]nico\.?)', r'\1\n\n\2', clean, flags=re.IGNORECASE)
+    clean = re.sub(r'([.;:)])\s+(§\s*[0-9]+[ºoªa\.\-]*)', r'\1\n\n\2', clean)
 
-    # 4. Separar alíneas: a), b), c)
+    # Separar alíneas: a), b), c) após ; ou :
     clean = re.sub(r'([;:])\s+([a-z]\))\s+', r'\1\n\n    \2 ', clean)
 
+    # Recolher eventuais quebras triplas
+    clean = re.sub(r'\n{3,}', '\n\n', clean)
     return clean.strip()
+
+def _collapse_spaced_caps(line: str) -> str:
+    # Ex: "P A R T E   G E R A L" -> "PARTE GERAL"
+    if re.match(r'^([A-ZÁÉÍÓÚÂÊÔÃÕÇ]\s+){3,}[A-ZÁÉÍÓÚÂÊÔÃÕÇ](\s+([A-ZÁÉÍÓÚÂÊÔÃÕÇ]\s+)*[A-ZÁÉÍÓÚÂÊÔÃÕÇ])?$', line):
+        words = re.split(r'\s{2,}', line)
+        return ' '.join(w.replace(' ', '') for w in words)
+    return line
 
 def parse_law(html_text: str, law_info: dict):
     code = law_info["code"]
@@ -384,33 +399,95 @@ def parse_law(html_text: str, law_info: dict):
 
     soup = BeautifulSoup(html_text, 'html.parser')
 
+    # Remover tags de estilo/script que não são conteúdo
+    for junk in soup.find_all(['script', 'style', 'title']):
+        junk.decompose()
+
     # Identificar e preservar trechos revogados antes de remover tags
     for tag in soup.find_all(['strike', 's', 'del']):
-        txt = tag.get_text(' ', strip=True)
+        txt = ' '.join(tag.get_text(' ', strip=True).split())
         if txt:
-            tag.replace_with(soup.new_string(f'\n[[[REV_START]]]\n{txt}\n[[[REV_END]]]\n'))
+            tag.replace_with(soup.new_string(f'\n[[[REV_START]]] {txt} [[[REV_END]]]\n'))
 
-    # Converter <br> para nova linha
+    # Normalizar <sup>o</sup> / <sup>a</sup> para ordinal sem gerar quebra de linha
+    for sup in soup.find_all('sup'):
+        st = sup.get_text(strip=True).lower()
+        if st in ('o', 'º', '°'):
+            sup.replace_with('º')
+        elif st in ('a', 'ª'):
+            sup.replace_with('ª')
+        else:
+            sup.unwrap()
+
+    # Converter <br> para nova linha e desembrulhar tags inline para evitar quebras no meio da frase
     for br in soup.find_all('br'):
         br.replace_with('\n')
+    for inline in soup.find_all(['a', 'span', 'b', 'strong', 'i', 'em', 'u', 'font', 'small', 'sub']):
+        inline.unwrap()
 
     full_text = soup.get_text('\n')
     full_text = full_text.replace('\r', '').replace('\xa0', ' ')
 
-    # Unir Art. com seu número se quebrados em linhas diferentes
-    full_text = re.sub(r'\b(Art(?:igo|\.)?)\s*\n\s*([0-9]+[ºoªa\.\-]*)', r'\1 \2', full_text, flags=re.IGNORECASE)
+    # Unir "Art." com seu número e número com ordinal se separados por quebras HTML
+    full_text = re.sub(r'(\bArt(?:\.|igo)?)\s*\n+\s*([0-9]+)', r'\1 \2', full_text)
+    full_text = re.sub(r'([0-9])\s*\n+\s*([ºª])', r'\1\2', full_text)
 
-    raw_lines = [l.strip() for l in full_text.split('\n') if l.strip()]
+    fragment_lines = [_collapse_spaced_caps(' '.join(l.split())) for l in full_text.split('\n')]
+    fragment_lines = [l for l in fragment_lines if l]
 
-    # Regex para identificar início de artigo
-    # Deve iniciar com "Art." ou "Artigo" (maiúsculo)
-    art_regex = re.compile(r'^\s*Art(?:\.|\b|igo)\s*([0-9]+(?:[\.\-][0-9A-Za-z]+|[ºoªa\.\-A-Za-z0-9])*)', re.IGNORECASE)
+    # Reconstruir parágrafos lógicos juntando quebras artificiais do HTML antigo do Planalto
+    para_start_re = re.compile(
+        r'^(Art(?:\.|igo)\s+[0-9]+|§\s*[0-9]+|Par[áa]grafo\s+[úu]nico\b|[IVXLCDM]+\s*[-–—]\s*|[a-z]\)\s*|[0-9]+[\.\)]\s+|(LIVRO|T[ÍI]TULO|CAP[ÍI]TULO|SE[ÇC][ÃA]O|SUBSE[ÇC][ÃA]O|PARTE)\b|DISPOSI[ÇC][ÃA]O\s+PRELIMINAR|PRE[ÂA]MBULO|\[\[\[REV_)'
+    )
+    heading_re = re.compile(
+        r'^(LIVRO|T[ÍI]TULO|CAP[ÍI]TULO|SE[ÇC][ÃA]O|SUBSE[ÇC][ÃA]O|PARTE)\s+([IVXLCDM0-9]+|ÚNICO|GERAL|ESPECIAL|PRIMEIR[OA]|SEGUND[OA]|TERCEIR[OA]|PRELIMINAR)\b',
+        re.IGNORECASE
+    )
+    continuation_end_re = re.compile(
+        r'(?:\b(?:o|a|os|as|no|na|nos|nas|do|da|dos|das|ao|à|aos|às|de|em|por|pelo|pela|pelos|pelas|para|com|sem|sob|sobre|entre|até|após|perante|contra|e|ou|que|se|conforme|segundo|nos\s+termos|disposto|previsto|art\.|arts\.|n\.|nº|inc\.|al\.)|,)\s*$',
+        re.IGNORECASE
+    )
+    abbrev_dot_re = re.compile(r'\b(n|art|arts|inc|al|par|dr|sr|sra|ex|obs)\.$', re.IGNORECASE)
+
+    legislative_note_re = re.compile(
+        r'^\((Reda[çc][ãa]o|Inclu[íi]d[oa]|Vide|Vig[êe]ncia|Revogad[oa]|Acrescid[oa]|Acrescentad[oa]|Alterad[oa]|Promulga[çc][ãa]o|Regulamento|Produ[çc][ãa]o de efeito|VETAD[OA])',
+        re.IGNORECASE
+    )
+
+    raw_lines = []
+    for l in fragment_lines:
+        if not raw_lines:
+            raw_lines.append(l)
+            continue
+        prev = raw_lines[-1]
+        is_rev_marker = '[[[REV_' in l or prev.endswith('[[[REV_END]]]')
+        is_heading_prev = bool(heading_re.match(prev))
+        if is_rev_marker or is_heading_prev:
+            raw_lines.append(l)
+        elif legislative_note_re.match(l) and not heading_re.match(prev):
+            raw_lines[-1] = normalize_punctuation(prev + ' ' + l)
+        elif para_start_re.match(l) and not continuation_end_re.search(prev):
+            raw_lines.append(l)
+        elif prev.endswith(('.', ';', ':', '!', '?', ')')) and not abbrev_dot_re.search(prev):
+            if re.match(r'^[\(\[]?[A-ZÁÉÍÓÚÂÊÔÃÕÇ0-9\"“§]', l):
+                raw_lines.append(l)
+            else:
+                sep = '' if l.startswith((',', '.', ';', ':', ')')) else ' '
+                raw_lines[-1] = normalize_punctuation(prev + sep + l)
+        else:
+            sep = '' if l.startswith((',', '.', ';', ':', ')')) else ' '
+            raw_lines[-1] = normalize_punctuation(prev + sep + l)
+
+    # Regex ESTRITAMENTE maiúscula para início de artigo ("Art. 1º" ou "Artigo 1º", nunca "art. 5º")
+    art_regex = re.compile(r'^\s*Art(?:\.|igo)\s+([0-9]+(?:[\.\-][0-9A-Za-z]+|[ºoªa\.\-A-Za-z0-9])*)')
 
     articles = []
+    existing_ids = set()
     current_art = None
     order_idx = 0
     preamble_lines = []
-    current_header = ""
+    pending_headers = []
+    expecting_subtitle = False
 
     pending_revoked = {}
     in_revoked = False
@@ -419,7 +496,7 @@ def parse_law(html_text: str, law_info: dict):
     def finalize_article(art):
         if not art:
             return
-        art["content"] = format_clean_text("\n".join(art["raw_lines"]))
+        art["content"] = format_clean_text("\n\n".join(art["raw_lines"]))
         del art["raw_lines"]
         if art.get("revoked_lines"):
             art["revoked_content"] = format_clean_text("\n\n---\n\n".join(art["revoked_lines"]))
@@ -430,10 +507,31 @@ def parse_law(html_text: str, law_info: dict):
 
     for line in raw_lines:
         if '[[[REV_START]]]' in line:
-            in_revoked = True
-            line = line.replace('[[[REV_START]]]', '').strip()
-            if not line:
+            # Pode haver texto antes e depois na mesma linha (inline revoked) ou bloco inteiro
+            m_inline = re.search(r'\[\[\[REV_START\]\]\]\s*(.*?)\s*\[\[\[REV_END\]\]\]', line)
+            if m_inline:
+                full_rev = m_inline.group(1).strip()
+                remainder = (line[:m_inline.start()] + ' ' + line[m_inline.end():]).strip()
+                if full_rev:
+                    m_rev = art_regex.match(full_rev)
+                    if m_rev:
+                        num = m_rev.group(1).rstrip('.:- ')
+                        sem = num.replace('.', '_').replace('-', '_').replace('º', '').replace('o', '').replace('ª', '').replace('a', '')
+                        pending_revoked.setdefault(sem, []).append(full_rev)
+                    elif current_art:
+                        current_art.setdefault('revoked_lines', []).append(full_rev)
+                    else:
+                        pending_revoked.setdefault('__GENERAL__', []).append(full_rev)
+                if not remainder:
+                    continue
+                line = normalize_punctuation(remainder)
+            else:
+                in_revoked = True
+                line = line.replace('[[[REV_START]]]', '').strip()
+                if line:
+                    rev_buffer.append(line)
                 continue
+
         if '[[[REV_END]]]' in line:
             in_revoked = False
             line = line.replace('[[[REV_END]]]', '').strip()
@@ -457,10 +555,23 @@ def parse_law(html_text: str, law_info: dict):
             rev_buffer.append(line)
             continue
 
-        # Detectar cabeçalho estrutural
-        if re.match(r'^(LIVRO|T[ÍI]TULO|CAP[ÍI]TULO|SE[ÇC][ÃA]O|SUBSE[ÇC][ÃA]O|PARTE)\s+[IVXLCDM0-9A-Z]+', line, re.IGNORECASE):
-            current_header = line
+        # Detectar cabeçalho estrutural + subtítulo imediato
+        if heading_re.match(line) or re.match(r'^DISPOSI[ÇC][ÃA]O\s+PRELIMINAR$', line, re.IGNORECASE):
+            pending_headers.append(line)
+            # Se já contém subtítulo na mesma linha (ex: "LIVRO I DAS PESSOAS"), não esperar outra linha obrigatória
+            expecting_subtitle = len(line.split()) <= 3
             continue
+
+        if expecting_subtitle:
+            expecting_subtitle = False
+            is_not_subtitle = (
+                art_regex.match(line)
+                or re.match(r'^(§|Par[áa]grafo|[IVXLCDM]+\s*[-–—]|[a-z]\)|\(Reda|\(Inclu|\(Vide|\(Vig)', line, re.IGNORECASE)
+                or len(line) > 130
+            )
+            if not is_not_subtitle:
+                pending_headers[-1] = f"{pending_headers[-1]}\n{line}"
+                continue
 
         m = art_regex.match(line)
         if m:
@@ -470,17 +581,19 @@ def parse_law(html_text: str, law_info: dict):
             semantic_num = raw_num.replace('.', '_').replace('-', '_').replace('º', '').replace('o', '').replace('ª', '').replace('a', '')
             art_id = f"{code}_ART_{semantic_num}"
 
-            # Evitar colisão de IDs duplicados
             dup = 1
             orig_id = art_id
-            existing_ids = {a["id"] for a in articles}
             while art_id in existing_ids:
                 dup += 1
                 art_id = f"{orig_id}_{dup}"
+            existing_ids.add(art_id)
 
             display_num = f"Art. {raw_num}"
             if raw_num.isdigit() and int(raw_num) <= 9 and not display_num.endswith(('º', 'o', 'ª', '.')):
                 display_num += "º"
+
+            header_block = "\n\n".join(pending_headers)
+            pending_headers = []
 
             order_idx += 1
             current_art = {
@@ -492,14 +605,14 @@ def parse_law(html_text: str, law_info: dict):
                 "raw_lines": [line],
                 "revoked_lines": pending_revoked.pop(semantic_num, []),
                 "order_index": order_idx,
-                "header_info": current_header
+                "header_info": header_block
             }
         else:
             if current_art:
+                # Não absorver cabeçalhos que ficaram pendentes como corpo do artigo anterior
                 current_art["raw_lines"].append(line)
             else:
-                # Coletar preâmbulo/ementa sem cabeçalhos burocráticos
-                if not re.search(r'Presid[êe]ncia|Secretaria|Subchefia|Casa Civil|Bras[íi]lia|Di[áa]rio Oficial', line, re.IGNORECASE):
+                if not re.search(r'Presid[êe]ncia|Secretaria|Subchefia|Casa Civil|Bras[íi]lia|Di[áa]rio Oficial|Texto compilado|[ÍI]ndice Tem[áa]tico|Emendas Constitucionais|^Vig[êe]ncia$', line, re.IGNORECASE):
                     if len(line) > 10 and len(preamble_lines) < 12:
                         preamble_lines.append(line)
 
@@ -538,7 +651,7 @@ def parse_law(html_text: str, law_info: dict):
         }
         articles.insert(0, preamble_art)
 
-    # Prefixar o cabeçalho estrutural no conteúdo do primeiro artigo que o sucede, se houver
+    # Prefixar o cabeçalho estrutural apenas no primeiro artigo que o sucede
     for art in articles:
         h = art.pop("header_info", "")
         if h and art["article_number"] != "Preâmbulo":

@@ -86,9 +86,12 @@ object PdfExporter {
                 artTitleText, 0, artTitleText.length, articleTitlePaint, contentWidth
             ).build()
 
-            // Texto do Artigo
+            // Texto do Artigo (sem marcadores internos ###)
+            val cleanBody = art.content.replace(Regex("""^###\s*([\s\S]+?)\s*###\n*""")) { m ->
+                "${m.groups[1]?.value.orEmpty().trim()}\n\n"
+            }
             val bodyLayout = StaticLayout.Builder.obtain(
-                art.content, 0, art.content.length, bodyPaint, contentWidth
+                cleanBody, 0, cleanBody.length, bodyPaint, contentWidth
             ).build()
 
             // Nota (se houver)

@@ -49,6 +49,11 @@ class LawViewModel(application: Application) : AndroidViewModel(application) {
     )
     val fontSizeSp: StateFlow<Float> = _fontSizeSp.asStateFlow()
 
+    private val _justifyText = MutableStateFlow(
+        prefs.getBoolean("justify_text", false)
+    )
+    val justifyText: StateFlow<Boolean> = _justifyText.asStateFlow()
+
     // Leis e Categorias
     val allLaws: StateFlow<List<LawMetadataEntity>> = repository.getAllLaws()
         .catch { e ->
@@ -146,6 +151,11 @@ class LawViewModel(application: Application) : AndroidViewModel(application) {
         val clamped = sizeSp.coerceIn(12f, 28f)
         _fontSizeSp.value = clamped
         prefs.edit().putFloat("font_size_sp", clamped).apply()
+    }
+
+    fun setJustifyText(justify: Boolean) {
+        _justifyText.value = justify
+        prefs.edit().putBoolean("justify_text", justify).apply()
     }
 
     fun toggleFavorite(articleId: String, currentStatus: Boolean) {

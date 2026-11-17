@@ -1,5 +1,6 @@
 package com.juridireader.app
 
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -117,8 +118,9 @@ fun MainAppNavHost(viewModel: LawViewModel) {
             composable(Screen.Search.route) {
                 SearchScreen(
                     viewModel = viewModel,
-                    onNavigateToArticle = { lawCode, articleId ->
-                        navController.navigate("reader/$lawCode?articleId=$articleId")
+                    onNavigateToArticle = { lawCode, articleId, searchQuery ->
+                        val encodedQuery = Uri.encode(searchQuery)
+                        navController.navigate("reader/$lawCode?articleId=$articleId&query=$encodedQuery")
                     },
                     onNavigateBack = {
                         navController.navigate(Screen.Home.route) {
@@ -150,10 +152,15 @@ fun MainAppNavHost(viewModel: LawViewModel) {
             }
 
             composable(
-                route = "reader/{lawCode}?articleId={articleId}",
+                route = "reader/{lawCode}?articleId={articleId}&query={query}",
                 arguments = listOf(
                     navArgument("lawCode") { type = NavType.StringType },
                     navArgument("articleId") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                    navArgument("query") {
                         type = NavType.StringType
                         nullable = true
                         defaultValue = null
@@ -162,9 +169,11 @@ fun MainAppNavHost(viewModel: LawViewModel) {
             ) { backStackEntry ->
                 val lawCode = backStackEntry.arguments?.getString("lawCode") ?: "CF88"
                 val articleId = backStackEntry.arguments?.getString("articleId")
+                val initialQuery = backStackEntry.arguments?.getString("query")
                 LawReaderScreen(
                     lawCode = lawCode,
                     targetArticleId = articleId,
+                    initialSearchQuery = initialQuery,
                     viewModel = viewModel,
                     onNavigateBack = { navController.popBackStack() }
                 )
